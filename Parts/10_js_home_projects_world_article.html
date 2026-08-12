@@ -1,0 +1,829 @@
+/* ============ HELPERS STATS (accurate — V2) ============ */
+/* Compte réel des pages d'un monde (seed + user) */
+function pagesOfWorld(wid){
+  return allArticles().filter(a=>a.world===wid);
+}
+/* Dernière modif d'un monde (max des mts pages + monde) */
+function worldLatestMts(w){
+  let latest=w.mts||0;
+  pagesOfWorld(w.id).forEach(a=>{if(a.mts&&a.mts>latest)latest=a.mts;});
+  return latest;
+}
+/* Nombre de pages accurate pour un monde */
+function worldPageCount(w){ return pagesOfWorld(w.id).length; }
+/* Toutes les catégories réellement utilisées */
+function usedCategories(){
+  const set=new Set();
+  allArticles().forEach(a=>{ if(a.category) set.add(a.category); });
+  return [...set];
+}
+/* Toutes les pages triées par date desc (Replongez-vous) */
+function recentPages(n){
+  return allArticles().filter(a=>a.mts).sort((a,b)=>b.mts-a.mts).slice(0,n||8);
+}
+/* Compteur animé (V2 style, ease-out cubique) */
+function animateCountSafe(el,target,dur){
+  target=+target||0; dur=dur||900;
+  const from=+el.textContent||0;
+  if(from===target){el.textContent=target;return;}
+  let start=null;
+  function step(ts){
+    if(start===null)start=ts;
+    const p=Math.min((ts-start)/dur,1);
+    const eased=1-Math.pow(1-p,3);
+    el.textContent=Math.round(from+(target-from)*eased);
+    if(p<1)requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* ============ HOME (V2 accurate) ============ */
+function greetingForHour(h){
+  if(h<5) return "Bonne nuit";
+  if(h<12) return "Bonjour";
+  if(h<18) return "Bon après-midi";
+  return "Bonsoir";
+}
+function renderHome(){
+  const h=new Date().getHours();
+  $("#greetHi").textContent=greetingForHour(h)+", Michaz";
+  const projects=store.worlds||SEED_WORLDS;
+
+  // --- Stats accurate (comme V2) ---
+  const nProjets=projects.length;
+  const nArticles=allArticles().length;
+  const nCats=usedCategories().length;
+  const nPinned=projects.filter(p=>p.pinned).length;
+  const statsData=[
+    {n:nProjets,l:"projets",i:"layers",v:"projects"},
+    {n:nArticles,l:"articles",i:"file",v:"articles"},
+    {n:nCats,l:"catégories",i:"folder",v:"categories"},
+    {n:nPinned,l:"épinglés",i:"sparkles",v:"pinned"}
+  ];
+  $("#statsHud").innerHTML=statsData.map(s=>
+    `<div class="stat" data-nav="${s.v}" style="cursor:pointer"><div class="stat__num" data-count="${s.n}">0</div><div class="stat__lbl">${icon(s.i)}${s.l}</div></div>`
+  ).join("");
+  // Animation compteurs
+  document.querySelectorAll("#statsHud .stat__num").forEach(el=>{
+    animateCountSafe(el,+el.dataset.count||0,900);
+  });
+
+  // --- Replongez-vous : pages triées par dernière modif (V2) ---
+  const recent=recentPages(4);
+  if(recent.length){
+    $("#resumeRow").innerHTML=recent.map(a=>{
+      const w=projects.find(x=>x.id===a.world);
+      const themeColor=w?w.theme:"#eebf4d";
+      const catLabel=CAT_LABELS[a.category]||a.category||"—";
+      const catIco=CAT_ICONS[a.category]||"file";
+      // Miniature perso si définie, sinon fond de dégradé du monde
+      /* [FEAT] icône/couleur de miniature choisies dans Thème et apparence */
+      const tc=a.thumbColor||themeColor;
+      const tIco=a.thumbIcon||catIco;
+      const coverStyle=a.thumbnail
+        ? `background-image:url('${esc(a.thumbnail)}');background-size:cover;background-position:center`
+        : `background:linear-gradient(135deg,${tc}44,${tc}11)`;
+      const coverContent=a.thumbnail?`<span class="w-badge">${catLabel}</span>`:`<span class="w-badge">${catLabel}</span>${icon(tIco)}`;
+      return `<article class="pcard" data-article="${a.slug}" style="flex:0 0 236px;min-width:0;cursor:pointer">
+        <div class="pcard__cover" style="${coverStyle}">
+          ${coverContent}
+        </div>
+        <div class="pcard__body"><h3>${esc(a.title)}${a.pinned?' <span style="color:var(--acc)">📌</span>':''}</h3><p>${esc(a.excerpt||"")}</p>
+          <div class="pcard__foot"><span>${w?esc(w.name):""}</span><span>${timeAgo(a.mts)}</span></div>
+        </div>
+      </article>`;
+    }).join("");
+  } else {
+    $("#resumeRow").innerHTML=`<p style="color:var(--inkmut);font-size:13px;padding:12px 4px">Aucune modification récente. Crée ou édite une page pour la retrouver ici.</p>`;
+  }
+
+  // --- Activité récente (dérivée du même tri) ---
+  const feedItems=recent.slice(0,3).map(a=>{
+    const w=projects.find(x=>x.id===a.world);
+    const catLabel=CAT_LABELS[a.category]||a.category||"—";
+    const color=CAT_COLORS[a.category]||"#eebf4d";
+    return `<div class="act"><div class="act__ico" style="color:${color};background:color-mix(in srgb,${color} 13%,transparent)">${icon("feather")}</div>
+      <p class="act__txt">${catLabel} : <b>${esc(a.title)}</b>${w?" dans "+esc(w.name):""}</p>
+      <span class="act__time">${timeAgo(a.mts)}</span></div>`;
+  }).join("");
+  const feedEl=$("#activityFeed");
+  if(feedEl) feedEl.innerHTML=feedItems || `<p style="color:var(--inkmut);font-size:13px">Rien à afficher pour le moment.</p>`;
+}
+
+/* ============ PROJECTS (V2 : tri par dernière modif + compteurs accurate) ============ */
+let filter="Tous",query="";
+function renderProjects(){
+  const projects=store.worlds||SEED_WORLDS;
+  // Compteurs par catégorie (accurate)
+  const counts={Tous:projects.length};
+  projects.forEach(p=>counts[p.kind]=(counts[p.kind]||0)+1);
+  $("#pChips").innerHTML=Object.keys(counts).map(c=>
+    `<button class="p-chip ${filter===c?"is-active":""}" data-filter="${c}">${c}<b>${counts[c]}</b></button>`
+  ).join("");
+  // Filtrage + tri par dernière modif desc (V2)
+  const q=query.toLowerCase();
+  const list=projects
+    .filter(p=>(filter==="Tous"||p.kind===filter)&&(p.name.toLowerCase().includes(q)||(p.tagline||"").toLowerCase().includes(q)))
+    .map(p=>({...p,_latest:worldLatestMts(p),_pages:worldPageCount(p)}))
+    .sort((a,b)=>(b._latest||0)-(a._latest||0));
+
+  $("#pCount").textContent=projects.length;
+  // Sous-titre accurate : "N univers · M pages écrites · K en cours de forge"
+  const totalRealPages=allArticles().length;
+  const enCours=projects.filter(p=>(p.progress||0)<100).length;
+  $("#pSub").textContent=`${projects.length} univers · ${totalRealPages} pages écrites · ${enCours} en cours de forge`;
+
+  $("#pGrid").innerHTML=list.map((p,i)=>{
+    const nPages=p._pages;
+    const upd=p._latest?timeAgo(p._latest):"—";
+    return `<article class="pcard" data-open="${p.id}" style="animation-delay:${i*60}ms">
+      <div class="pcard__cover" style="background:linear-gradient(135deg,${p.theme}44,${p.theme}11)">
+        <span class="w-badge">${esc(p.kind)}</span>${icon(p.icon)}
+      </div>
+      <div class="pcard__body"><h3>${esc(p.name)}</h3><p>${esc(p.tagline||"")}</p>
+        <div class="xp"><i style="width:${p.progress||0}%"></i></div>
+        <div class="pcard__foot"><span>${nPages} page${nPages>1?"s":""}</span><span>${upd}</span></div>
+      </div>
+    </article>`;
+  }).join("")+`<button class="p-new" id="btnNewWorld">${icon("sparkles")}Nouveau monde</button>`;
+}
+document.addEventListener("click",e=>{
+  const f=e.target.closest("[data-filter]");
+  if(f){filter=f.dataset.filter;renderProjects()}
+  if(e.target.closest("#btnNewWorld")){modal(`<h3>Nouveau monde</h3><p>Donnez un nom à votre univers.</p><input id="mWorld" placeholder="Nom du monde..." maxlength="40"><div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn btn--acc" id="mWorldOk">Forger</button></div>`);setTimeout(()=>$("#mWorld")?.focus(),150)}
+  if(e.target.closest("#mWorldOk")){
+    const v=$("#mWorld").value.trim();if(!v)return;
+    const worlds=store.worlds||[...SEED_WORLDS];
+    worlds.unshift({id:"w"+Date.now(),name:v,kind:"Monde",icon:"compass",theme:ACCENTS[Math.floor(Math.random()*ACCENTS.length)].a,tagline:"Un monde tout juste sorti de la forge.",progress:2,mts:Date.now(),pinned:false});
+    store.worlds=worlds;closeModal();renderProjects();renderHome();toast(`« ${v} » a été forgé`);
+  }
+  const c=e.target.closest("[data-open]");
+  if(c)openWorld(c.dataset.open);
+  if(e.target.closest("[data-mclose]"))closeModal();
+  if(e.target.closest("[data-article]")){e.preventDefault();openArticle(e.target.closest("[data-article]").dataset.article)}
+});
+$("#pSearch").addEventListener("input",e=>{query=e.target.value;renderProjects()});
+
+/* ============ ARTICLES VIEW (V2 : liste plein écran) ============ */
+let artsFilter="Tous",artsQuery="";
+function renderArticlesView(){
+  const arts=allArticles().slice().sort((a,b)=>(b.mts||0)-(a.mts||0));
+  const projects=store.worlds||SEED_WORLDS;
+  // Chips par catégorie (accurate)
+  const counts={Tous:arts.length};
+  arts.forEach(a=>{if(a.category)counts[a.category]=(counts[a.category]||0)+1;});
+  $("#artsChips").innerHTML=Object.keys(counts).map(c=>{
+    const lbl=c==="Tous"?"Tous":(CAT_LABELS[c]||c);
+    return `<button class="p-chip ${artsFilter===c?"is-active":""}" data-artsfilter="${c}">${esc(lbl)}<b>${counts[c]}</b></button>`;
+  }).join("");
+  // Filtre + recherche
+  const q=artsQuery.toLowerCase();
+  const list=arts.filter(a=>{
+    const okC=artsFilter==="Tous"||a.category===artsFilter;
+    const okQ=!q||a.title.toLowerCase().includes(q)||(a.excerpt||"").toLowerCase().includes(q);
+    return okC&&okQ;
+  });
+  $("#artsCount").textContent=list.length;
+  $("#artsSub").textContent=`${list.length} article${list.length>1?"s":""}${artsFilter!=="Tous"?" dans "+(CAT_LABELS[artsFilter]||artsFilter):""}, triés par dernière modification.`;
+  const box=$("#artsList"), empty=$("#artsEmpty"), msg=$("#artsEmptyMsg");
+  if(!box)return;
+  if(list.length){
+    box.hidden=false; if(empty)empty.hidden=true;
+    box.innerHTML=list.map(a=>{
+      const w=projects.find(x=>x.id===a.world);
+      /* [FEAT] miniature perso prioritaire sur la catégorie */
+      const color=a.thumbColor||CAT_COLORS[a.category]||"var(--acc)";
+      const catIco=a.thumbIcon||CAT_ICONS[a.category]||"file";
+      const catLbl=CAT_LABELS[a.category]||a.category||"—";
+      return `<div class="list-card" data-article="${esc(a.slug)}">
+        <div class="list-card__ico" style="color:${color};background:color-mix(in srgb,${color} 14%,transparent)">${icon(catIco)}</div>
+        <div class="list-card__txt">
+          <h4>${esc(a.title)}</h4>
+          <p>${esc(catLbl)}${w?" · "+esc(w.name):""} · ${timeAgo(a.mts)}</p>
+        </div>
+        <span style="color:var(--inkmut);flex:0 0 auto">›</span>
+      </div>`;
+    }).join("");
+  } else {
+    box.hidden=true; if(empty)empty.hidden=false;
+    box.innerHTML="";
+    if(msg)msg.textContent=artsQuery?`Aucun article ne correspond à « ${artsQuery} ».`:"Aucun article dans cette catégorie pour l'instant.";
+  }
+}
+document.addEventListener("click",e=>{
+  const f=e.target.closest("[data-artsfilter]");
+  if(f){artsFilter=f.dataset.artsfilter;renderArticlesView();}
+});
+document.addEventListener("input",e=>{
+  if(e.target.id==="artsSearch"){artsQuery=e.target.value;renderArticlesView();}
+});
+
+/* ============ CATEGORIES VIEW (V2 : grille catégories) ============ */
+function renderCategoriesView(){
+  const arts=allArticles();
+  const projects=store.worlds||SEED_WORLDS;
+  // Compte par catégorie utilisée
+  const usage={};
+  arts.forEach(a=>{if(a.category)usage[a.category]=(usage[a.category]||0)+1;});
+  const cats=Object.keys(usage);
+  $("#catsCount").textContent=cats.length;
+  const box=$("#catsGrid"), empty=$("#catsEmpty");
+  if(!box)return;
+  if(cats.length){
+    box.hidden=false; if(empty)empty.hidden=true;
+    box.innerHTML=cats.map(c=>{
+      const color=CAT_COLORS[c]||"var(--acc)";
+      const ico=CAT_ICONS[c]||"folder";
+      const lbl=CAT_LABELS[c]||c;
+      const n=usage[c];
+      return `<button class="cat-card" data-catfilter="${esc(c)}" style="--cc:${color}">
+        <div class="cat-card__ico">${icon(ico)}</div>
+        <div class="cat-card__name">${esc(lbl)}</div>
+        <div class="cat-card__count">${n} article${n>1?"s":""}</div>
+      </button>`;
+    }).join("");
+  } else {
+    box.hidden=true; if(empty)empty.hidden=false;
+    box.innerHTML="";
+  }
+}
+document.addEventListener("click",e=>{
+  const c=e.target.closest("[data-catfilter]");
+  if(c){artsFilter=c.dataset.catfilter;artsQuery="";showView("articles");}
+});
+
+/* ============ PINNED VIEW (V2 : mondes épinglés) ============ */
+function renderPinnedView(){
+  const projects=store.worlds||SEED_WORLDS;
+  const list=projects.filter(p=>p.pinned)
+    .map(p=>({...p,_latest:worldLatestMts(p),_pages:worldPageCount(p)}))
+    .sort((a,b)=>(b._latest||0)-(a._latest||0));
+  $("#pinnedCount").textContent=list.length;
+  const box=$("#pinnedGrid"), empty=$("#pinnedEmpty");
+  if(!box)return;
+  if(list.length){
+    box.hidden=false; if(empty)empty.hidden=true;
+    box.innerHTML=list.map((p,i)=>{
+      const upd=p._latest?timeAgo(p._latest):"—";
+      return `<article class="pcard" data-open="${p.id}" style="animation-delay:${i*60}ms">
+        <div class="pcard__cover" style="background:linear-gradient(135deg,${p.theme}44,${p.theme}11)">
+          <span class="w-badge">${esc(p.kind)}</span>${icon(p.icon)}
+        </div>
+        <div class="pcard__body"><h3>${esc(p.name)}</h3><p>${esc(p.tagline||"")}</p>
+          <div class="xp"><i style="width:${p.progress||0}%"></i></div>
+          <div class="pcard__foot"><span>${p._pages} page${p._pages>1?"s":""}</span><span>${upd}</span></div>
+        </div>
+      </article>`;
+    }).join("");
+  } else {
+    box.hidden=true; if(empty)empty.hidden=false;
+    box.innerHTML="";
+  }
+}
+
+/* ============ WORLD ============ */
+function openWorld(id){
+  const projects=store.worlds||SEED_WORLDS;
+  currentWorld=projects.find(p=>p.id===id)||projects[0];
+  currentTab="explorer";currentArticle=null;
+  showView("world");
+}
+function renderWorld(){
+  const p=currentWorld;if(!p)return;
+  /* [FIX ④] variable morte supprimée (SEED_ARTICLES non filtré — le bandeau
+     utilise worldPageCount() qui lit déjà allArticles()) */
+  $("#worldShell").innerHTML=`
+    <div class="w-crumb"><button data-nav="projects">${icon("arrow")}Mondes</button><span style="color:var(--inkmut)">›</span><span>${esc(p.name)}</span></div>
+    <div class="w-hero2">
+      <div class="w-hero2__media">${p.banner?`<img src="${esc(p.banner)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:`<div class="${p.cover||""}" style="position:absolute;inset:0;background:linear-gradient(135deg,${p.theme}44,${p.theme}11)"></div>`}
+        <span class="w-badge">${esc(p.kind)}</span>
+      </div>
+      <div class="w-hero2__body">
+        <div class="w-idrow"><div class="w-sigil">${icon(p.icon)}</div><h1 class="w-title">${esc(p.name)}</h1></div>
+        <p class="w-tagline">${esc(p.tagline)}</p>
+        <div class="w-metachips">
+          <span class="w-mc">${icon("file")}${worldPageCount(p)} pages</span>
+          <span class="w-mc">${icon("clock")}${timeAgo(worldLatestMts(p))}</span>
+        </div>
+      </div>
+    </div>
+    <div class="w-tabs" role="tablist">
+      ${[["explorer","Explorer"],["categories","Catégories"],["map","Carte"],["timeline","Chronologie"]].map(([k,l])=>`<button class="w-tab ${currentTab===k?"is-active":""}" data-tab="${k}">${l}</button>`).join("")}
+    </div>
+    <div id="wDoc" style="padding-top:20px"></div>`;
+  renderWorldTab();
+}
+function renderWorldTab(){
+  const doc=$("#wDoc");if(!doc||!currentWorld)return;
+  const p=currentWorld;
+  /* [FIX ④] allArticles() (seed + vos pages, dédupliqué) + tri par dernière
+     modif — le bloc "extra" (cartes non cliquables) devient inutile */
+  const arts=allArticles().filter(a=>a.world===p.id).sort((a,b)=>(b.mts||0)-(a.mts||0));
+
+  if(currentTab==="explorer"){
+    doc.innerHTML=`
+      <div class="prose"><p>${p.tagline}</p></div>
+      ${arts.length?`<h3 style="font-family:var(--fontw);font-size:16px;margin:20px 0 10px">Articles</h3>`+arts.map(a=>{const cc=a.thumbColor||CAT_COLORS[a.category]||"var(--acc)";return`<div class="list-card" data-article="${esc(a.slug)}"><div class="list-card__ico" style="color:${cc};background:${cc}22">${icon(a.thumbIcon||CAT_ICONS[a.category]||"file")}</div><div class="list-card__txt"><h4>${esc(a.title)}</h4><p>${esc(a.excerpt)}</p></div><span style="color:var(--inkmut)">${icon("chevron")}</span></div>`}).join(""):""}`;
+  }
+  if(currentTab==="categories"){
+    const groups={};arts.forEach(a=>{(groups[a.category]=groups[a.category]||[]).push(a)});
+    doc.innerHTML=`<div style="padding-top:6px">`+(Object.keys(groups).length?Object.keys(groups).map(c=>`
+      <div style="margin-bottom:18px">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+          <div class="list-card__ico" style="color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent);width:34px;height:34px">${icon(CAT_ICONS[c]||"folder")}</div>
+          <h4 style="font-family:var(--fontw);font-size:15px;flex:1">${CAT_LABELS[c]||c}</h4><b style="color:var(--inkmut);font-size:12px">${groups[c].length}</b>
+        </div>
+        ${groups[c].map(a=>`<div class="list-card" data-article="${esc(a.slug)}"><div class="list-card__txt"><h4>${esc(a.title)}</h4><p>${esc(a.excerpt)}</p></div><span style="color:var(--inkmut)">${icon("chevron")}</span></div>`).join("")}
+      </div>`).join(""):`<p style="color:var(--inkmut);font-size:13px">Aucune catégorie.</p>`)+`</div>`;
+  }
+  if(currentTab==="map"){
+    const mk=SEED_MARKERS.filter(m=>m.world===p.id);
+    doc.innerHTML=`<p style="color:var(--inkmut);font-size:13px;margin-top:14px">Les îles chartées de ${p.name}.</p>
+      <div class="map-wrap">
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,${p.theme}22,${p.theme}08)"></div>
+        ${mk.map(m=>`<button class="marker" style="left:${m.x}%;top:${m.y}%" ${m.slug?`data-article="${m.slug}"`:""} aria-label="${m.title}"><span class="marker__dot marker__dot--${m.type}"></span><span class="marker__lbl">${m.title}</span></button>`).join("")}
+      </div>`;
+  }
+  if(currentTab==="timeline"){
+    const ev=SEED_TIMELINE.filter(t=>t.world===p.id);
+    doc.innerHTML=ev.length?`<div class="tl">`+ev.map(t=>`<div class="tl-item" ${t.slug?`data-article="${t.slug}"`:""} style="cursor:${t.slug?"pointer":"default"}"><div class="tl-era">${t.era}</div><div class="tl-year">${t.year}</div><h4>${t.title}</h4><p>${t.desc}</p></div>`).join("")+`</div>`:`<p style="color:var(--inkmut);font-size:13px;margin-top:14px">Aucun événement consigné.</p>`;
+  }
+  revealScan();
+}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-tab]");
+  if(t){currentTab=t.dataset.tab;document.querySelectorAll(".w-tab").forEach(b=>b.classList.toggle("is-active",b===t));renderWorldTab()}
+});
+
+/* ============ ARTICLE ============ */
+function openArticle(slug){
+  const a=findArticle(slug);
+  if(!a){toast("Page introuvable : "+slug);return}
+  currentArticle=slug;
+  const w=currentWorld?.id||a.world||"aethelgard";
+  const projects=store.worlds||SEED_WORLDS;
+  currentWorld=projects.find(p=>p.id===w)||currentWorld||projects[0];
+  showView("article");
+}
+function renderArticleView(){
+  const shell=$("#articleShell");if(!shell||!currentArticle)return;
+  const a=findArticle(currentArticle);if(!a)return;
+  const p=currentWorld||{id:"aethelgard",name:"Aethelgard"};
+  const bl=backlinks(a.slug);
+  // Si l'@infobox est déjà dans le md (article édité), on ne rend pas a.infobox séparément
+  // pour éviter la duplication. Sinon on utilise a.infobox (data legacy des seed articles).
+  const hasInline=/^\s*@infobox\s+\{/m.test(a.md||"");
+  const ib=(!hasInline&&a.infobox)?a.infobox:{};
+  const hasIb=!!(ib.image||ib.subtitle||ib.quote||(ib.badges&&ib.badges.length)||(ib.sections&&ib.sections.length)||(ib.stats&&ib.stats.length)||ib.headerLabel);
+
+  const cats=getCats(a);
+  const catsHTML=cats.length?`<div class="art-cats">
+    <div class="art-cats__lbl">Catégories</div>
+    ${cats.map(c=>`<button class="art-cats__chip" data-nav-cat="${esc(c)}">${icon("compass")||""}${esc(CAT_LABELS[c]||c)}</button>`).join("")}
+  </div>`:"";
+  const coverHTML=a.cover?`<div class="art-cover"><img src="${esc(a.cover)}" alt="" loading="lazy"></div>`:"";
+  shell.innerHTML=`
+    ${coverHTML}
+    <div class="w-crumb"><button data-nav-world="${esc(p.id)}">${icon("arrow")}${esc(p.name)}</button><span style="color:var(--inkmut)">›</span><span>${esc(a.title)}</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <h2 style="font-family:var(--fontd);font-weight:900;font-size:clamp(20px,5.6vw,27px);flex:1;min-width:0">${esc(a.title)}${a.pinned?' <span title="Épinglé" style="color:var(--acc);font-size:14px">📌</span>':''}${a.later?' <span title="À reprendre" style="color:#4da3ff;font-size:14px">🔖</span>':''}</h2>
+      <button style="color:var(--acc);font-size:11.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;gap:6px" onclick="openEditor('${esc(a.slug)}')">${icon("pencil")}Modifier</button>
+      <button class="art-more" id="artMoreBtn" aria-label="Plus d'actions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+    </div>
+    ${hasIb?infoboxHTML(ib,a.title,cats[0]||a.category):""}
+    ${generateTOC(a.md)}
+    <div class="prose">${md(a.md)}</div>
+    ${a.tags?`<div class="w-tags">${a.tags.map(t=>`<span class="w-tag"><b>#</b>${t}</span>`).join("")}</div>`:""}
+    ${catsHTML}
+    ${bl.length?`<div class="backlinks"><h3>Pages liées (${bl.length})</h3>`+bl.map(b=>`<div class="list-card" data-article="${esc(b.slug)}"><div class="list-card__ico" style="color:#4da3ff;background:rgba(77,163,255,.13)">${icon("link")}</div><div class="list-card__txt"><h4>${esc(b.title)}</h4><p>Mentionne cette page</p></div><span style="color:var(--inkmut)">${icon("chevron")}</span></div>`).join("")+`</div>`:""}
+    <div style="display:flex;align-items:center;gap:8px;color:var(--inkmut);font-size:11.5px;font-weight:600;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">${icon("clock")}${a.views||0} vues · ${cats.length?cats.map(c=>CAT_LABELS[c]||c).join(" · "):"—"}</div>`;
+  // Applique le thème page si défini (couleurs personnalisées pour cette page uniquement)
+  applyPageTheme(a.theme);
+  // Bouton ⋮ → ouvre la sheet
+  const moreBtn=$("#artMoreBtn");
+  if(moreBtn) moreBtn.addEventListener("click",()=>openArtSheet(a.slug));
+  // Animate stat bars
+  requestAnimationFrame(()=>{shell.querySelectorAll(".ib-stat__bar i").forEach(i=>{i.style.width=i.style.width||"0%"})});
+  revealScan();
+}
+document.addEventListener("click",e=>{
+  const wb=e.target.closest("[data-nav-world]");
+  if(wb){const projects=store.worlds||SEED_WORLDS;currentWorld=projects.find(p=>p.id===wb.dataset.navWorld);showView("world")}
+});
+
+/* ═════════════════════════════════════════════════════════════════
+   MENU ⋮ ACTIONS ARTICLE — bottom sheet + toutes les fonctions
+   ═════════════════════════════════════════════════════════════════ */
+
+/* Helper : force la persistance après mutation d'objets déjà dans store.pages.
+   (le setter store.pages = ... déclenche l'écriture LS+IDB, mais muter un
+   objet en place ne le déclenche pas → on réassigne pour re-persister) */
+function saveStore(){
+  store.pages=store.pages;
+  store.worlds=store.worlds;
+}
+
+/* Helper multi-catégories : Fandom-style — chaque page peut appartenir
+   à plusieurs catégories. On garde a.category (singulier legacy) pour
+   compat, et on introduit a.categories (tableau). */
+function getCats(a){
+  if(!a) return [];
+  if(a.categories && Array.isArray(a.categories) && a.categories.length) return a.categories;
+  if(a.category) return [a.category];
+  return [];
+}
+function setCats(a,list){
+  a.categories=Array.isArray(list)?list.filter(Boolean):[];
+  // On garde a.category = première cat pour rétro-compat visuelle des seeds
+  a.category=a.categories[0]||a.category;
+}
+
+/* Recherche l'article courant modifiable (dans store.pages) — les seeds sont copiés dedans à la 1ère modif */
+function ensureEditablePage(slug){
+  let p=(store.pages||[]).find(x=>x.slug===slug);
+  if(p) return p;
+  const seed=SEED_ARTICLES.find(x=>x.slug===slug);
+  if(!seed) return null;
+  // Copie profonde du seed dans le store pour pouvoir le modifier
+  p=JSON.parse(JSON.stringify(seed));
+  p.mts=Date.now();
+  store.pages=[...(store.pages||[]),p];
+  saveStore();
+  return p;
+}
+
+/* Applique un thème page (override des tokens CSS uniquement pour cette vue) */
+function applyPageTheme(theme){
+  const root=document.documentElement;
+  /* [FIX ③] removeProperty retombait sur le défaut CSS #eebf4d au lieu de
+     restaurer l'accent choisi dans le Concepteur de thème */
+  root.style.setProperty("--acc",themeState.accent);
+  if(!theme || typeof theme!=="object") return;
+  if(theme.acc) root.style.setProperty("--acc",theme.acc);
+}
+
+/* Ouverture/fermeture de la sheet menu ⋮ */
+let artSheetSlug=null;
+function openArtSheet(slug){
+  navPush && navPush("artsheet");
+  artSheetSlug=slug;
+  const a=findArticle(slug); if(!a) return;
+  // Toggle labels dynamiques (Épingler ↔ Désépingler, etc.)
+  const pinLbl=document.querySelector('#artSheet [data-lbl="pin"]');
+  const latLbl=document.querySelector('#artSheet [data-lbl="later"]');
+  if(pinLbl) pinLbl.textContent=a.pinned?"Désépingler":"Épingler";
+  if(latLbl) latLbl.textContent=a.later?"Retirer de À reprendre":"Reprendre plus tard";
+  // Marque visuellement les états actifs
+  document.querySelectorAll("#artSheet .artsheet__row").forEach(b=>b.classList.remove("is-on"));
+  if(a.pinned) document.querySelector('#artSheet [data-artact="pin"]')?.classList.add("is-on");
+  if(a.later) document.querySelector('#artSheet [data-artact="later"]')?.classList.add("is-on");
+  hideVirtualKeyboard();
+  $("#artSheet").classList.add("show");
+}
+/* [FIX ①] split visuel / consommant */
+function closeArtSheetVisual(){
+  $("#artSheet").classList.remove("show");
+}
+function closeArtSheet(){
+  if(!$("#artSheet").classList.contains("show"))return;
+  closeArtSheetVisual(); consumeEntry();
+}
+$("#artSheetClose").addEventListener("click",closeArtSheet);
+
+/* Routage des actions du menu ⋮ */
+$("#artSheet").addEventListener("click",e=>{
+  const btn=e.target.closest("[data-artact]"); if(!btn) return;
+  const act=btn.dataset.artact;
+  const slug=artSheetSlug; if(!slug) return;
+  closeArtSheet();
+  setTimeout(()=>artAction(act,slug),180);   // laisse la sheet se refermer visuellement
+});
+$("#artSheetTrash").addEventListener("click",()=>{
+  const slug=artSheetSlug; closeArtSheet();
+  if(slug) setTimeout(()=>trashPage(slug),180);
+});
+
+function artAction(act,slug){
+  if(act==="rename") actRename(slug);
+  else if(act==="pin") actTogglePin(slug);
+  else if(act==="later") actToggleLater(slug);
+  else if(act==="cats") actEditCats(slug);
+  else if(act==="move") actMoveTo(slug);
+  else if(act==="dup") actDuplicateTo(slug);
+  else if(act==="history") actHistory(slug);
+  else if(act==="theme") actPageTheme(slug);
+}
+
+/* ── Renommer ────────────────────────────────────────────────── */
+function actRename(slug){
+  const a=findArticle(slug); if(!a) return;
+  modal(`<h3>Renommer la page</h3>
+    <p style="color:var(--inkmut);font-size:12.5px;margin:0 0 10px">Le lien interne (slug) est conservé — les <b>[[liens]]</b> vers cette page continuent à fonctionner.</p>
+    <input id="mRenameIn" value="${esc(a.title)}" maxlength="80" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:14px;padding:12px 14px;outline:none;margin-bottom:12px">
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn" style="background:color-mix(in srgb,var(--acc) 20%,transparent);border:1px solid var(--acc);color:var(--acc)" id="mRenameOk">Renommer</button></div>`);
+  setTimeout(()=>$("#mRenameIn")?.focus(),150);
+  /* [FIX ②] handler sur le bouton (détruit avec le modal) au lieu de document */
+  $("#mRenameOk").onclick=()=>{
+    const v=($("#mRenameIn")?.value||"").trim();
+    if(!v){toast("Nom vide");return;}
+    const p=ensureEditablePage(slug); if(!p) return;
+    p.title=v; p.mts=Date.now();
+    saveStore(); closeModal(); renderArticleView();
+    toast("Renommé");
+  };
+}
+
+/* ── Épingler / Désépingler ──────────────────────────────────── */
+function actTogglePin(slug){
+  const p=ensureEditablePage(slug); if(!p) return;
+  p.pinned=!p.pinned; p.mts=Date.now();
+  saveStore(); renderArticleView();
+  toast(p.pinned?"Épinglé ★":"Désépinglé");
+}
+
+/* ── Reprendre plus tard ─────────────────────────────────────── */
+function actToggleLater(slug){
+  const p=ensureEditablePage(slug); if(!p) return;
+  p.later=!p.later; p.mts=Date.now();
+  saveStore(); renderArticleView();
+  toast(p.later?"Ajouté à « À reprendre »":"Retiré de « À reprendre »");
+}
+
+/* ── Catégories multi (façon Fandom) ─────────────────────────── */
+function actEditCats(slug){
+  const a=findArticle(slug); if(!a) return;
+  const current=new Set(getCats(a));
+  // Toutes catégories connues = celles du catalogue + celles déjà utilisées ailleurs
+  const known=new Set(Object.keys(CAT_LABELS));
+  allArticles().forEach(x=>getCats(x).forEach(c=>known.add(c)));
+  const list=Array.from(known);
+  const chipsHTML=list.map(c=>{
+    const on=current.has(c)?"on":"";
+    const lbl=CAT_LABELS[c]||c;
+    return `<button class="catpicker__chip ${on}" data-cat="${esc(c)}">${esc(lbl)}</button>`;
+  }).join("");
+  modal(`<h3>Catégories</h3>
+    <p style="color:var(--inkmut);font-size:12.5px;margin:0 0 8px">Sélectionne toutes celles qui s'appliquent. Une page peut appartenir à plusieurs catégories.</p>
+    <div class="catpicker" id="catpick">${chipsHTML}</div>
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <input id="mCatNew" placeholder="Créer une catégorie…" maxlength="30" style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:13px;padding:10px 12px;outline:none">
+      <button class="btn btn--ghost" id="mCatAdd" style="padding:10px 14px">+</button>
+    </div>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn" style="background:color-mix(in srgb,var(--acc) 20%,transparent);border:1px solid var(--acc);color:var(--acc)" id="mCatSave">Enregistrer</button></div>`);
+  const pick=$("#catpick");
+  pick.addEventListener("click",e=>{
+    const c=e.target.closest("[data-cat]"); if(!c) return;
+    c.classList.toggle("on");
+  });
+  $("#mCatAdd").addEventListener("click",()=>{
+    const v=($("#mCatNew")?.value||"").trim(); if(!v) return;
+    const key=slugify(v); if(!key) return;
+    if(!CAT_LABELS[key]){CAT_LABELS[key]=v;persistCats();}   /* [FEAT] persisté */
+    if(pick.querySelector(`[data-cat="${key}"]`)){
+      pick.querySelector(`[data-cat="${key}"]`).classList.add("on");
+    } else {
+      const el=document.createElement("button");
+      el.className="catpicker__chip on"; el.dataset.cat=key; el.textContent=v;
+      pick.appendChild(el);
+    }
+    $("#mCatNew").value="";
+  });
+  /* [FIX ②] handler sur le bouton au lieu de document */
+  $("#mCatSave").onclick=()=>{
+    const picked=[...pick.querySelectorAll(".on")].map(c=>c.dataset.cat);
+    const p=ensureEditablePage(slug); if(!p)return;
+    setCats(p,picked); p.mts=Date.now();
+    saveStore(); closeModal(); renderArticleView();
+    toast(`${picked.length} catégorie${picked.length>1?"s":""} enregistrée${picked.length>1?"s":""}`);
+  };
+}
+
+/* ── Déplacer vers un autre monde ────────────────────────────── */
+function actMoveTo(slug){
+  const a=findArticle(slug); if(!a) return;
+  const worlds=(store.worlds||SEED_WORLDS);
+  const cur=a.world||(currentWorld&&currentWorld.id);
+  const items=worlds.filter(w=>w.id!==cur).map(w=>
+    `<button class="wpicker__it" data-wid="${esc(w.id)}">${icon(w.icon||"compass")}<span>${esc(w.name)}</span></button>`
+  ).join("");
+  modal(`<h3>Déplacer vers…</h3>
+    <p style="color:var(--inkmut);font-size:12.5px;margin:0 0 10px">Choisis le monde de destination pour cette page.</p>
+    <div class="wpicker">${items||`<p style="color:var(--inkmut);text-align:center;padding:14px">Aucun autre monde disponible.</p>`}</div>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button></div>`);
+  /* [FIX ②] handlers sur les boutons du modal au lieu de document */
+  document.querySelectorAll("#modalCard [data-wid]").forEach(it=>{
+    it.onclick=()=>{
+      const wid=it.dataset.wid;
+      const p=ensureEditablePage(slug); if(!p)return;
+      p.world=wid; p.mts=Date.now();
+      saveStore(); closeModal();
+      // Change de monde courant pour suivre la page
+      currentWorld=worlds.find(w=>w.id===wid);
+      renderArticleView();
+      toast("Déplacé vers "+(worlds.find(w=>w.id===wid)?.name||wid));
+    };
+  });
+}
+
+/* ── Dupliquer vers un monde (même ou autre) ─────────────────── */
+function actDuplicateTo(slug){
+  const a=findArticle(slug); if(!a) return;
+  const worlds=(store.worlds||SEED_WORLDS);
+  const items=worlds.map(w=>
+    `<button class="wpicker__it" data-wid="${esc(w.id)}">${icon(w.icon||"compass")}<span>${esc(w.name)}</span></button>`
+  ).join("");
+  modal(`<h3>Dupliquer vers…</h3>
+    <p style="color:var(--inkmut);font-size:12.5px;margin:0 0 10px">Crée une copie de <b>${esc(a.title)}</b> dans le monde choisi.</p>
+    <div class="wpicker">${items}</div>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button></div>`);
+  /* [FIX ②] handlers sur les boutons du modal au lieu de document
+     (cause du bug "double copie" : les handlers annulés s'accumulaient) */
+  document.querySelectorAll("#modalCard [data-wid]").forEach(it=>{
+    it.onclick=()=>{
+      const wid=it.dataset.wid;
+      // Copie profonde + nouveau slug + suffixe
+      const copy=JSON.parse(JSON.stringify(a));
+      let base=(a.slug||"page")+"-copie";
+      let n=1, ns=base;
+      while(allArticles().some(x=>x.slug===ns)){ n++; ns=base+"-"+n; }
+      copy.slug=ns;
+      copy.title=(a.title||"Page")+" (copie)";
+      copy.world=wid;
+      copy.pinned=false; copy.later=false;
+      copy.mts=Date.now();
+      delete copy.history;
+      store.pages=[...(store.pages||[]),copy];
+      saveStore(); closeModal();
+      toast("Copié vers "+(worlds.find(w=>w.id===wid)?.name||wid));
+      // Bascule sur la nouvelle copie
+      currentArticle=copy.slug;
+      currentWorld=worlds.find(w=>w.id===wid);
+      renderArticleView();
+    };
+  });
+}
+
+/* ── Historique (placeholder, à venir) ───────────────────────── */
+function actHistory(slug){
+  modal(`<h3>Historique des versions</h3>
+    <p style="color:var(--inkmut);font-size:13px;line-height:1.6;margin:0 0 12px">🕐 Bientôt disponible.<br>Cette fonctionnalité gardera automatiquement les <b>10 dernières versions</b> de la page à chaque sauvegarde, avec un aperçu et un bouton « Restaurer ».</p>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Compris</button></div>`);
+}
+
+/* ── Thème de la page (couverture + miniature + palette) ─────── */
+function actPageTheme(slug){
+  const a=findArticle(slug); if(!a) return;
+  const th=a.theme||{};
+  const acc=th.acc||"";
+  /* [FEAT] icône + couleur de la miniature par défaut (quand pas d'image) */
+  let tIcon=a.thumbIcon||null,tColor=a.thumbColor||null;
+  modal(`
+    <div class="modal__head">
+      <h3>Thème et apparence</h3>
+      <button class="btn btn--ghost" data-mclose style="padding:6px 10px;font-size:16px;line-height:1">✕</button>
+    </div>
+    <div class="modal__body">
+      <p style="color:var(--inkmut);font-size:12.5px;margin:0 0 14px">Personnalise l'apparence de <b>${esc(a.title)}</b> — ces réglages s'appliquent uniquement à cette page.</p>
+
+      <div class="fgroup">
+        <label>🖼️ Image de couverture (bannière en haut)</label>
+        <div class="thumbprev" id="artCoverPrev">${a.cover?`<img src="${esc(a.cover)}">`:"Aucune couverture"}</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn--ghost" id="artCoverPickBtn" style="flex:1">Choisir une image</button>
+          <button class="btn btn--ghost" id="artCoverClrBtn">Aucune</button>
+        </div>
+        <input id="artCoverUrl" placeholder="Ou colle une URL…" value="${esc(a.cover||"")}" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:12.5px;padding:8px 10px;outline:none;margin-top:6px">
+      </div>
+
+      <div class="fgroup">
+        <label>🎞️ Miniature (aperçu carte de page)</label>
+        <div class="thumbprev sq" id="artThumbPrev" style="max-width:120px">${a.thumbnail?`<img src="${esc(a.thumbnail)}">`:"Aucune"}</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn--ghost" id="artThumbPickBtn" style="flex:1">Choisir une image</button>
+          <button class="btn btn--ghost" id="artThumbClrBtn">Aucune</button>
+        </div>
+        <input id="artThumbUrl" placeholder="Ou colle une URL…" value="${esc(a.thumbnail||"")}" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:12.5px;padding:8px 10px;outline:none;margin-top:6px">
+      </div>
+
+      <div class="fgroup">
+        <label>🧿 Icône de miniature (si aucune image)</label>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span id="artTIcoPrev" style="width:42px;height:42px;border-radius:11px;display:grid;place-items:center;flex:0 0 auto;border:1px solid var(--line);color:${a.thumbColor||"var(--inkmut)"};background:${a.thumbColor?a.thumbColor+"22":"var(--panel2)"}">${icon(a.thumbIcon||CAT_ICONS[a.category]||"file")}</span>
+          <button class="btn btn--ghost" id="artTIcoBtn" style="flex:1">Médiathèque…</button>
+          <button class="btn btn--ghost" id="artTIcoClr" title="Revenir à l'icône de catégorie">✕</button>
+        </div>
+        <small style="color:var(--inkmut);font-size:11.5px;display:block;margin-top:4px">Par défaut : l'icône et la couleur de la catégorie.</small>
+      </div>
+
+      <div class="fgroup">
+        <label>🎨 Couleur d'accent (override page)</label>
+        <div class="frow">
+          <input type="color" id="artAcc" value="${acc||"#eebf4d"}" style="width:52px;height:42px;padding:3px;border-radius:10px;background:var(--panel);border:1px solid var(--line);cursor:pointer;flex:0 0 auto">
+          <input id="artAccHex" value="${(acc||"").toUpperCase()}" placeholder="Vide = thème global" maxlength="7" style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:13px;padding:10px 12px;outline:none;font-family:var(--fontm),ui-monospace,monospace">
+          <button class="btn btn--ghost" id="artAccClr" title="Retirer">✕</button>
+        </div>
+        <small style="color:var(--inkmut);font-size:11.5px;display:block;margin-top:4px">Laisse vide pour utiliser le thème global de l'app.</small>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--ghost" data-mclose>Annuler</button>
+      <button class="btn" style="background:color-mix(in srgb,var(--acc) 20%,transparent);border:1px solid var(--acc);color:var(--acc)" id="artThemeSave">Enregistrer</button>
+    </div>`,"is-scroll");
+
+  // Bindings live pour l'aperçu et les uploads
+  const setCoverPrev=url=>{
+    $("#artCoverPrev").innerHTML=url?`<img src="${esc(url)}">`:"Aucune couverture";
+    $("#artCoverUrl").value=url||"";
+  };
+  const setThumbPrev=url=>{
+    $("#artThumbPrev").innerHTML=url?`<img src="${esc(url)}">`:"Aucune";
+    $("#artThumbUrl").value=url||"";
+  };
+  $("#artCoverPickBtn").addEventListener("click",()=>$("#artCoverFile").click());
+  $("#artThumbPickBtn").addEventListener("click",()=>$("#artThumbFile").click());
+  $("#artCoverClrBtn").addEventListener("click",()=>setCoverPrev(""));
+  $("#artThumbClrBtn").addEventListener("click",()=>setThumbPrev(""));
+  $("#artCoverUrl").addEventListener("input",e=>setCoverPrev(e.target.value.trim()));
+  $("#artThumbUrl").addEventListener("input",e=>setThumbPrev(e.target.value.trim()));
+
+  // Upload + compression pour cover (16/6 → max 1600px)
+  const onFileCover=e=>{
+    const f=e.target.files[0]; e.target.value=""; if(!f) return;
+    compressImage(f,1600,0.82).then(url=>setCoverPrev(url)).catch(()=>toast("Image invalide"));
+  };
+  const onFileThumb=e=>{
+    const f=e.target.files[0]; e.target.value=""; if(!f) return;
+    compressImage(f,600,0.82).then(url=>setThumbPrev(url)).catch(()=>toast("Image invalide"));
+  };
+  /* [FIX ②] affectation idempotente : le {once:true} laissait un listener en
+     attente si on fermait sans choisir de fichier, puis rouvrait le modal */
+  $("#artCoverFile").onchange=onFileCover;
+  $("#artThumbFile").onchange=onFileThumb;
+
+  // Sync picker ↔ hex pour accent
+  $("#artAcc").addEventListener("input",()=>{$("#artAccHex").value=$("#artAcc").value.toUpperCase();});
+  $("#artAccHex").addEventListener("input",e=>{
+    let v=e.target.value.trim(); if(v&&!v.startsWith("#"))v="#"+v;
+    if(/^#[0-9a-fA-F]{6}$/.test(v)) $("#artAcc").value=v.toLowerCase();
+  });
+  $("#artAccClr").addEventListener("click",()=>{$("#artAccHex").value="";});
+
+  /* [FEAT] médiathèque pour l'icône de miniature */
+  $("#artTIcoBtn").onclick=()=>openIconPicker(
+    {icon:tIcon||CAT_ICONS[a.category]||"file",color:tColor||CAT_COLORS[a.category]||"#eebf4d"},
+    sel=>{tIcon=sel.icon;tColor=sel.color;
+      const pv=$("#artTIcoPrev");if(pv){pv.style.color=tColor;pv.style.background=tColor+"22";pv.innerHTML=icon(tIcon);}});
+  $("#artTIcoClr").onclick=()=>{tIcon=null;tColor=null;
+    const pv=$("#artTIcoPrev");if(pv){pv.style.color="var(--inkmut)";pv.style.background="var(--panel2)";pv.innerHTML=icon(CAT_ICONS[a.category]||"file");}};
+
+  /* [FIX ②] handler sur le bouton au lieu de document */
+  $("#artThemeSave").onclick=()=>{
+    const p=ensureEditablePage(slug); if(!p)return;
+    const cov=$("#artCoverUrl").value.trim();
+    const thm=$("#artThumbUrl").value.trim();
+    const hex=$("#artAccHex").value.trim();
+    p.cover=cov||null;
+    p.thumbnail=thm||null;
+    /* [FEAT] icône/couleur de miniature */
+    p.thumbIcon=tIcon;p.thumbColor=tColor;
+    const theme={};
+    if(/^#[0-9a-fA-F]{6}$/.test(hex)) theme.acc=hex.toLowerCase();
+    p.theme=Object.keys(theme).length?theme:null;
+    p.mts=Date.now();
+    saveStore(); closeModal(); renderArticleView();
+    toast("Thème enregistré");
+  };
+}
+
+/* Helper : compression image locale → dataURL JPEG */
+function compressImage(file,maxSize,quality){
+  return new Promise((res,rej)=>{
+    const rd=new FileReader();
+    rd.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const s=Math.min(1, maxSize/Math.max(img.width,img.height));
+        const c=document.createElement("canvas");
+        c.width=Math.round(img.width*s);
+        c.height=Math.round(img.height*s);
+        c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL("image/jpeg",quality||0.82));
+      };
+      img.onerror=rej;
+      img.src=rd.result;
+    };
+    rd.onerror=rej;
+    rd.readAsDataURL(file);
+  });
+}
+
+/* Navigation par tap sur chip de catégorie (en bas d'article) */
+document.addEventListener("click",e=>{
+  const c=e.target.closest("[data-nav-cat]");
+  if(c){
+    // Ouvre la vue catégories filtrée sur cette cat (si la vue existe déjà)
+    showView("categories");
+    toast("Catégorie : "+(CAT_LABELS[c.dataset.navCat]||c.dataset.navCat));
+  }
+});
+

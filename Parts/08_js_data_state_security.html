@@ -1,0 +1,364 @@
+<script>
+"use strict";
+
+/* ================================================================
+   ATELIER — Fusion v1.1
+   ----------------------------------------------------------------
+   Base : fusion V1 (visuel doré/bevel/braises) + V2 (Inbox/Corbeille)
+   Ajouts v1.1 :
+   - Sécurité : sanitize() + esc() anti-XSS
+   - Perf    : debounce() sur la recherche
+   - Stockage: IndexedDB avec fallback localStorage (miroir)
+   - Import  : JSON validé + sanitizé + modal de confirmation
+   - Export  : payload complet (worlds + pages + trash + theme + prefs)
+   - Protect : navigator.storage.persist() (bouclier V2)
+   - Infos   : compteurs taille DB + quota navigateur
+   - Corbeille : modal custom (plus de confirm() natif)
+   ================================================================ */
+
+/* ============ ICÔNES SVG INLINE ============ */
+const ICO={
+  compass:'<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  feather:'<path d="M12.67 19a2 2 0 0 0 1.42-.59l6.15-6.17a6 6 0 0 0-8.49-8.49L5.59 9.91A2 2 0 0 0 5 11.33V18a1 1 0 0 0 1 1z"/><path d="M16 8 2 22"/><path d="M17.5 15H9"/>',
+  castle:'<path d="M22 20v-9H2v9"/><path d="M2 20h20"/><path d="M4 11V4l2 1 2-1v7"/><path d="M16 11V4l2 1 2-1v7"/><path d="M12 20v-6a2 2 0 0 0-4 0v6"/>',
+  gem:'<path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  map:'<path d="M14.1 5.55a2 2 0 0 0 1.8 0l3.66-1.83A1 1 0 0 1 21 4.62v12.76a1 1 0 0 1-.55.9l-4.56 2.27a2 2 0 0 1-1.79 0l-4.21-2.1a2 2 0 0 0-1.79 0l-3.66 1.83A1 1 0 0 1 3 19.38V6.62a1 1 0 0 1 .55-.9l4.56-2.27a2 2 0 0 1 1.79 0z"/><path d="M15 5.76v15"/><path d="M9 3.24v15"/>',
+  sparkles:'<path d="M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96l6.13-1.58A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/>',
+  arrow:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chevron:'<path d="m9 18 6-6-6-6"/>',
+  layers:'<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  save:'<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
+  heading:'<path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="m17 12 3-2v8"/>',
+  list:'<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+  pencil:'<path d="M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  folder:'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>'
+};
+// Tous les SVG ont une taille par défaut de 16×16 (surchargeable par CSS spécifique)
+const icon=n=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICO[n]||""}</svg>`;
+
+/* ============ DONNÉES SEED (fusion V1 + V2 + React) ============ */
+/* Helper : timestamp relatif (ex: "il y a 2 h") — V2 */
+function timeAgo(ts){
+  if(!ts) return "à l'instant";
+  const s=Math.floor((Date.now()-ts)/1000);
+  if(s<60) return "à l'instant";
+  const m=Math.floor(s/60); if(m<60) return "il y a "+m+" min";
+  const h=Math.floor(m/60); if(h<24) return "il y a "+h+" h";
+  const d=Math.floor(h/24); if(d<30) return "il y a "+d+" j";
+  const mo=Math.floor(d/30); if(mo<12) return "il y a "+mo+" mois";
+  return "il y a "+Math.floor(mo/12)+" an(s)";
+}
+const NOW=Date.now();
+const IMG={
+  ciel:"https://images.pexels.com/photos/9504246/pexels-photo-9504246.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+  temple:"https://images.pexels.com/photos/5651287/pexels-photo-5651287.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+  palace:"https://images.pexels.com/photos/5385570/pexels-photo-5385570.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+  hero:"https://i.postimg.cc/y8M5HCDh/hue-teo-king-arthur-set-12.jpg"
+};
+const SEED_WORLDS=[
+  {id:"aethelgard",name:"Aethelgard",kind:"Monde",icon:"castle",theme:"#6366f1",cover:"cover-ciel",banner:IMG.ciel,tagline:"Archipels flottants, magie aethérique et empires déchus.",progress:62,mts:NOW-2*3600000,pinned:true,guardians:3},
+  {id:"cieléméra",name:"Cieléméra",kind:"Fiction",icon:"compass",theme:"#7fd0ff",cover:"cover-marees",banner:null,tagline:"Îles flottantes tenues par les Gardiens du Vent.",progress:34,mts:NOW-26*3600000,pinned:false,guardians:2},
+  {id:"fumecendre",name:"Fumecendre",kind:"Fiction",icon:"gem",theme:"#ff8a3c",cover:"cover-miroirs",banner:null,tagline:"Forge enchantée — cité volcanique, maisons de braises.",progress:28,mts:NOW-3*86400000,pinned:false,guardians:1}
+];
+
+const CAT_ICONS={character:"users",location:"castle",faction:"feather",artifact:"gem",event:"clock",concept:"sparkles",template:"file",
+  Personnages:"users",Lieux:"castle",Factions:"feather",Objets:"gem","Événements":"clock","Magie & Vents":"sparkles"};
+const CAT_LABELS={character:"Personnages",location:"Lieux",faction:"Factions",artifact:"Artefacts",event:"Événements",concept:"Concepts",template:"Modèles"};
+const CAT_COLORS={character:"#4da3ff",location:"#4cc38a",faction:"#ff7a5c",artifact:"#eebf4d",event:"#8f7bff",concept:"#5fd4e6",template:"#9a9ca6"};
+
+const SEED_ARTICLES=[
+  {world:"aethelgard",slug:"kael-valerius",title:"Archimage Kael Valerius",category:"character",mts:NOW-2*3600000,
+   excerpt:"Grand Magister de la Citadelle Solaire et gardien de la Sol-Blade primordiale.",views:1420,
+   tags:["Mage","Dynastie Solaire","Protagoniste"],
+   infobox:{subtitle:"L'Avant solaire · Porteur de l'Aube",
+     image:"https://images.pexels.com/photos/13848736/pexels-photo-13848736.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+     caption:"Kael canalisant le vortex solaire radieux au zénith de la Citadelle Solaire.",
+     quote:"« La lumière ne pardonne pas aux ténèbres ; elle incinère l'ombre. »",
+     badges:["Grand Magister","Porteur de la Sol-Blade","Immortel Tier IV"],
+     sections:[{title:"Biographie",fields:[["Espèce","Haut Elfe solaire"],["Âge","342 cycles"],["Fief","La Citadelle Solaire","sun-citadel"],["Affiliation","Ordre de l'Aube Radieuse","order-of-the-radiant-dawn"]]},
+               {title:"Capacités",fields:[["Arme","La Sol-Blade","sol-blade"],["Discipline","Photomancie & Tissage gravitationnel"],["Puissance","Classe cataclysmique"]]}],
+     stats:[["Mana aethérique",96,"#eab308"],["Maîtrise martiale",88,"#ef4444"],["Lore & Alchimie",92,"#3b82f6"],["Résonance céleste",98,"#a855f7"]]},
+   md:`## Aperçu\n\n**Archmage Kael Valerius** est le Grand Magister de la [[sun-citadel]] et commandant de l'[[order-of-the-radiant-dawn]]. Il manie l'ancestrale [[sol-blade]] pour stabiliser les îles célestes.\n\n---\n\n## Jeunesse & Ascension\n\n> « Son âme ne reflète pas seulement le soleil ; il est la forge où les flammes célestes sont battues. »\n\nÀ 120 ans, Kael fut élu Grand Magister à l'unanimité.\n\n---\n\n## Équipement\n\n### The Sol-Blade\nUne arme forgée dans le cœur d'une étoile morte, dont la corona de plasma tranche les écailles enchantées.`},
+  {world:"aethelgard",slug:"sun-citadel",title:"La Citadelle Solaire",category:"location",mts:NOW-8*3600000,
+   excerpt:"Mégalopole dorée flottante, ancrée au-dessus de l'Éternelle Mer de Nuages.",views:980,
+   tags:["Cité","Île céleste","Capitale"],
+   infobox:{subtitle:"Capitale de l'archipel céleste",
+     image:IMG.palace,
+     caption:"Les flèches radieuses de la Sun Citadel dans un crépuscule doré permanent.",
+     quote:"« Au-dessus de la tempête, nous brillons éternellement. »",
+     badges:["Métropole céleste","Capitale","Cœur d'Aether"],
+     sections:[{title:"Géographie",fields:[["Altitude","14 500 m"],["Population","2,4 millions"],["Souverain","Kael Valerius","kael-valerius"]]}],
+     stats:[["Défense aethérique",91,"#3b82f6"],["Prospérité",84,"#eab308"]]},
+   md:`## La Cité Dorée\n\nLa **Sun Citadel** flotte au-dessus de l'Éternelle Mer de Nuages. Elle est gouvernée par [[kael-valerius]] et abrite le temple de l'[[order-of-the-radiant-dawn]].\n\nFondée après [[the-sundering]], elle reste le dernier rempart contre les brèches d'ombre.`},
+  {world:"aethelgard",slug:"the-sundering",title:"La Grande Fracture",category:"event",mts:NOW-1*86400000,
+   excerpt:"Le cataclysme qui brisa le continent en îles flottantes.",views:640,
+   tags:["Cataclysme","Ère de l'Éclipse"],
+   infobox:{subtitle:"Ère de l'Éclipse • An 0",
+     image:"https://images.pexels.com/photos/1146134/pexels-photo-1146134.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+     caption:"L'orage d'aether qui déchira Aethelgard en centaines d'îles.",
+     sections:[{title:"Faits",fields:[["Type","Cataclysme magique"],["Conséquence","Fracture du continent"],["Survivants","Gardiens du Vent"]]}]},
+   md:`## Le Grand Fracture\n\nL'événement qui déchira Aethelgard. Les rifts d'ombre s'ouvrirent et les îles dérivèrent autour du Cœur d'Aether. Voir [[kael-valerius]] pour le rôle de la Grande Ancre.`},
+  {world:"aethelgard",slug:"sol-blade",title:"La Sol-Blade",category:"artifact",mts:NOW-3*86400000,
+   excerpt:"Lame ancestrale forgée dans le cœur d'une étoile morte.",views:512,
+   tags:["Arme","Relique","Solaire"],
+   infobox:{subtitle:"Relique de la Dynastie Solaire",
+     image:"https://images.pexels.com/photos/6432938/pexels-photo-6432938.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+     caption:"La Sol-Blade — corona de plasma ultraviolet capable de trancher l'ombre.",
+     sections:[{title:"Propriétés",fields:[["Origine","Cœur d'étoile morte"],["Porteur","Kael Valerius","kael-valerius"],["Classe","Cataclysmic"]]}]},
+   md:`## Lame du Zénith\n\nPortée par [[kael-valerius]], la **Sol-Blade** émet une corona de plasma capable de trancher les écailles enchantées.`},
+  {world:"aethelgard",slug:"order-of-the-radiant-dawn",title:"Ordre de l'Aube Radieuse",category:"faction",mts:NOW-5*86400000,
+   excerpt:"Ordre militaire gardien des îles hautes.",views:388,
+   tags:["Ordre","Gardiens"],
+   infobox:{subtitle:"Serment de l'Aube",
+     image:IMG.temple,
+     caption:"Les chevaliers de l'Aube en veille au temple des remparts célestes.",
+     sections:[{title:"Organisation",fields:[["Chef","Kael Valerius","kael-valerius"],["Siège","The Sun Citadel","sun-citadel"]]}]},
+   md:`## Le Serment\n\nLes chevaliers de l'Aube jurent de maintenir chaque île sur sa trajectoire, sous l'autorité de [[kael-valerius]].`},
+  {world:"aethelgard",slug:"aether-crystals",title:"Cristaux d'Aether",category:"concept",mts:NOW-10*86400000,
+   excerpt:"Cristaux d'énergie brute servant d'ancres aux îles flottantes.",views:275,
+   tags:["Magie","Aether"],
+   infobox:{subtitle:"Énergie primordiale",
+     image:"https://images.pexels.com/photos/1573236/pexels-photo-1573236.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200",
+     caption:"Fragment d'aether cristallisé, luisant d'un feu bleu intérieur.",
+     sections:[{title:"Propriétés",fields:[["Usage","Ancrage tectonique"],["Rareté","Tier IV"]]}]},
+   md:`## Énergie brute\n\nUtilisés par [[kael-valerius]] lors de [[the-sundering]] pour ancrer les îles de la [[sun-citadel]].`}
+];
+
+const SEED_TIMELINE=[
+  {world:"aethelgard",year:"An −800",era:"Ère des Arcanistes",title:"Fondation du continent unifié",desc:"Les arcanistes célestes gouvernent une terre d'un seul tenant."},
+  {world:"aethelgard",year:"An 0",era:"Ère de l'Éclipse",title:"The Sundering",desc:"Le monde se brise en centaines d'îles flottantes.",slug:"the-sundering"},
+  {world:"aethelgard",year:"An 12",era:"Ère de l'Éclipse",title:"La Grande Ancre",desc:"Kael Valerius stabilise l'archipel oriental.",slug:"kael-valerius"},
+  {world:"aethelgard",year:"An 47",era:"Ère des Vents",title:"Serment des Gardiens",desc:"Naissance de l'Order of the Radiant Dawn.",slug:"order-of-the-radiant-dawn"}
+];
+
+const SEED_MARKERS=[
+  {world:"aethelgard",title:"Sun Citadel",type:"city",x:52,y:34,slug:"sun-citadel"},
+  {world:"aethelgard",title:"Port de Brume",type:"city",x:22,y:68},
+  {world:"aethelgard",title:"Ruines de Vhael",type:"ruin",x:74,y:58},
+  {world:"aethelgard",title:"Crypte d'Ombre",type:"dungeon",x:38,y:82}
+];
+
+/* ============ PROMPTS DU JOUR (style World Anvil : 30 prompts catégorisés) ============
+   Types : personnage, lieu, faction, mythe, evenement, objet, mystere
+   Chaque prompt = question ouverte pour débloquer l'écriture en 3 secondes. */
+const PROMPT_TYPES={
+  personnage:{label:"Personnage",color:"#eebf4d",icon:"users"},
+  lieu:      {label:"Lieu",      color:"#4cc38a",icon:"castle"},
+  faction:   {label:"Faction",   color:"#ff7a5c",icon:"feather"},
+  mythe:     {label:"Mythe",     color:"#8f7bff",icon:"sparkles"},
+  evenement: {label:"Événement", color:"#5fd4e6",icon:"clock"},
+  objet:     {label:"Objet",     color:"#4da3ff",icon:"gem"},
+  mystere:   {label:"Mystère",   color:"#c084fc",icon:"compass"}
+};
+const PROMPTS=[
+  // === V1 originaux (worldbuilding contemplatif) ===
+  {t:"lieu",       q:"« Décris la cité comme si le vent lui-même en était l'architecte. »"},
+  {t:"faction",    q:"« Quel serment lie les Gardiens à leur île depuis le Grand Fracture ? »"},
+  {t:"evenement",  q:"« Raconte la première nuit où la Brume d'en-bas est montée trop haut. »"},
+  {t:"lieu",       q:"« Dessine avec les mots une carte que seul un aveugle pourrait lire. »"},
+  {t:"mythe",      q:"« Quelle chanson les courants d'aether murmurent-ils aux enfants ? »"},
+  // === V2 originaux (narratifs provocateurs) ===
+  {t:"personnage", q:"« Ton héros perd un sens. Lequel change tout ? »"},
+  {t:"faction",    q:"« Une faction ment depuis le début. Laquelle, et pourquoi maintenant ? »"},
+  {t:"mystere",    q:"« La magie de ce monde a un prix. Qui vient de le payer ? »"},
+  {t:"personnage", q:"« Deux de tes personnages se croisent sans se reconnaître. Pourquoi ? »"},
+  {t:"lieu",       q:"« Une carte de ton monde est fausse. Que cache l'erreur ? »"},
+  {t:"mythe",      q:"« Le plus vieux dieu de ton univers se réveille… et il a oublié son propre nom. »"},
+  // === Nouveaux (style World Anvil authentique) ===
+  {t:"lieu",       q:"« Contre toute attente, ton peuple s'est installé dans un environnement hostile. Comment ont-ils survécu ? »"},
+  {t:"mythe",      q:"« Quelle est l'origine du monde selon chaque peuple ? Choisis-en un et raconte. »"},
+  {t:"faction",    q:"« Pourquoi les elfes (ou tout autre peuple ancien) ne dominent-ils pas ? »"},
+  {t:"lieu",       q:"« Quelle taverne mal famée sert de plaque tournante à toutes les rumeurs du port ? »"},
+  {t:"lieu",       q:"« Quelle formation géologique impossible surgit près d'une grande cité ? »"},
+  {t:"faction",    q:"« Quelle société secrète contrôle vraiment le marché noir ? »"},
+  {t:"objet",      q:"« Quelle épée légendaire fut jadis brandie par un roi ? Où repose-t-elle aujourd'hui ? »"},
+  {t:"lieu",       q:"« Où se trouve la frontière du monde connu ? Que trouvent ceux qui la franchissent ? »"},
+  {t:"personnage", q:"« Quel héros oublié de l'histoire ancienne mériterait qu'on lui rende justice ? »"},
+  {t:"mystere",    q:"« Quel type de communication est jugé dépassé, mais reste chéri par ses pratiquants ? »"},
+  {t:"evenement",  q:"« Quel cataclysme a laissé une cicatrice visible depuis l'espace ? »"},
+  {t:"personnage", q:"« Décris le mentor qui a trahi ton protagoniste. Qu'est-ce qui l'a poussé à ça ? »"},
+  {t:"mythe",      q:"« Quelle prophétie a été mal interprétée pendant des siècles ? »"},
+  {t:"faction",    q:"« Deux guildes se détestent depuis 500 ans. Pour quelle raison ridicule à l'origine ? »"},
+  {t:"objet",      q:"« Quel objet du quotidien devient sacré dans ton monde ? Pourquoi ? »"},
+  {t:"mystere",    q:"« Quelque chose disparaît chaque nuit dans un village. Quoi, et où ça va ? »"},
+  {t:"lieu",       q:"« Il existe une bibliothèque interdite. Qui la garde, et pourquoi ? »"},
+  {t:"personnage", q:"« Quel personnage secondaire mériterait son propre roman ? Pitche-le. »"},
+  {t:"evenement",  q:"« Une fête annuelle commémore un événement dont plus personne ne connaît le vrai sens. Lequel ? »"},
+  {t:"mythe",      q:"« Quel monstre les parents inventent-ils pour effrayer les enfants ? Existe-t-il vraiment ? »"}
+];
+
+/* ============ PRESETS THÈME (React → vanilla) ============ */
+const BG_PRESETS={
+  v1:        {bg:"#141519",bgsoft:"#101114",panel:"#1c1e25",panel2:"#242731",line:"rgba(255,255,255,.07)",ink:"#e9e7e1",inkmut:"#9a9ca6"},
+  braise:    {bg:"#0d0b09",bgsoft:"#14110d",panel:"#171310",panel2:"#201a14",line:"#2b241b",ink:"#f3eadf",inkmut:"#a89a89"},
+  obsidienne:{bg:"#0c0e15",bgsoft:"#10131c",panel:"#141824",panel2:"#1a1f2e",line:"#262c3d",ink:"#edf0fa",inkmut:"#8f97b3"},
+  fournaise: {bg:"#140709",bgsoft:"#1a0b0e",panel:"#1f0f12",panel2:"#281317",line:"#3a1e23",ink:"#ffece4",inkmut:"#ad8d88"},
+  cendre:    {bg:"#131315",bgsoft:"#17171a",panel:"#1b1b1f",panel2:"#222227",line:"#2e2e35",ink:"#ececec",inkmut:"#9b9ba4"}
+};
+/* === TAPESTRY PRESETS (fond image type Hearthstone : velours + bordures dorées) === */
+/* [RECONSTRUCTION] La partie "Background" n'a pas été fournie : la data-URL de la
+   tapisserie bleue manque. Constante vide pour que le boot ne crashe pas — fond vide. */
+const TAPESTRY_BLUE_DATAURL="";
+const TAPESTRY_PRESETS = [
+  { id:"blue",   name:"Velours bleu",   file:"bg-velvet-blue.jpg",   preview:"#0e2a55" },
+  { id:"red",    name:"Velours pourpre",file:"bg-velvet-red.jpg",    preview:"#5a1418" },
+  { id:"purple", name:"Velours violet", file:"bg-velvet-purple.jpg", preview:"#3a1547" },
+  { id:"green",  name:"Velours vert",   file:"bg-velvet-green.jpg",  preview:"#0f4225" }
+];
+/* === WOOD PRESETS (6 essences de bois inspirées Hearthstone / dark fantasy) === */
+const WOOD_PRESETS=[
+  {id:"chene",     name:"Chêne foncé",     hex:"#5a3a20"},
+  {id:"acajou",    name:"Acajou rouge",    hex:"#6b2f22"},
+  {id:"ebene",     name:"Ébène noir",      hex:"#2a1f18"},
+  {id:"noyer",     name:"Noyer doré",      hex:"#7a5228"},
+  {id:"palissandre",name:"Palissandre",    hex:"#4a2a1f"},
+  {id:"cendre",    name:"Bois cendré",     hex:"#3d3530"}
+];
+const ACCENTS=[
+  {a:"#ff8a3c",b:"#ffc24b",name:"Braise"},
+  {a:"#f5c542",b:"#ffe08a",name:"Or antique"},
+  {a:"#a78bfa",b:"#c4b5fd",name:"Cendre violette"},
+  {a:"#ff4d6d",b:"#ff8fa8",name:"Lave"},
+  {a:"#38bdf8",b:"#7dd3fc",name:"Souffle bleu"},
+  {a:"#34d399",b:"#86efac",name:"Jade forgé"}
+];
+const FONTS=[
+  {id:"atelier",name:"Atelier",d:"Cinzel, serif",w:"Cinzel, serif",u:"Manrope, sans-serif"},
+  {id:"chronique",name:"Chronique",d:"Cinzel, serif",w:"Cinzel, serif",u:"Fraunces, serif"},
+  {id:"codex",name:"Codex",d:"JetBrains Mono, monospace",w:"JetBrains Mono, monospace",u:"Outfit, sans-serif"}
+];
+const RADIUS_OPTS=[{v:"5px",l:"Vives"},{v:"14px",l:"Doux"},{v:"26px",l:"Ronds"}];
+const WIDTH_OPTS=[{v:"1080px",l:"Serrée"},{v:"1240px",l:"Standard"},{v:"1420px",l:"Large"}];
+
+/* ============ ÉTAT ============ */
+let currentWorld=null,currentTab="explorer",currentArticle=null;
+let themeState={bg:"v1",accent:"#eebf4d",accent2:"#c99a2e",font:"atelier",radius:"14px",contentw:"1240px",glow:true,grain:true,wood:"#5a3a20",tapestry:"blue",bgCustomBase:null};
+try{const s=localStorage.getItem("atelier.theme");if(s)themeState={...themeState,...JSON.parse(s)}}catch(e){}
+
+/* ---- Helpers couleur (HEX ↔ HSL) pour picker bois ---- */
+function hexToHsl(hex){
+  hex=(hex||"").replace("#","");
+  if(hex.length===3)hex=hex.split("").map(c=>c+c).join("");
+  if(hex.length!==6)return{h:28,s:45,l:18};
+  const r=parseInt(hex.slice(0,2),16)/255,g=parseInt(hex.slice(2,4),16)/255,b=parseInt(hex.slice(4,6),16)/255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  let h=0,s=0,l=(max+min)/2;
+  if(max!==min){
+    const d=max-min;
+    s=l>.5?d/(2-max-min):d/(max+min);
+    switch(max){
+      case r:h=(g-b)/d+(g<b?6:0);break;
+      case g:h=(b-r)/d+2;break;
+      case b:h=(r-g)/d+4;break;
+    }
+    h/=6;
+  }
+  return{h:Math.round(h*360),s:Math.round(s*100),l:Math.round(l*100)};
+}
+function hslToHex(h,s,l){
+  s/=100;l/=100;
+  const k=n=>(n+h/30)%12;
+  const a=s*Math.min(l,1-l);
+  const f=n=>{const c=l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return Math.round(c*255).toString(16).padStart(2,"0");};
+  return"#"+f(0)+f(8)+f(4);
+}
+/* Génère une palette 7-tokens à partir d'une couleur de base (le --bg).
+   Les autres tokens sont dérivés en montant progressivement en luminosité,
+   sauf --ink/--inkmut qui sont en clair (texte).
+   Reproduit exactement la logique V1 : #141519 → #1c1e25 → #242731, etc. */
+function paletteFromBase(hex){
+  const {h,s,l}=hexToHsl(hex);
+  return{
+    bg:      hslToHex(h,s,l),                            // Base
+    bgsoft:  hslToHex(h,Math.max(s-2,0),Math.max(l-2,2)),// Un peu plus sombre
+    panel:   hslToHex(h,s,l+4),                          // Cartes
+    panel2:  hslToHex(h,s,l+7),                          // Cartes surélevées
+    line:    "rgba(255,255,255,.07)",                    // Ligne discrète universelle
+    ink:     "#e9e7e1",                                  // Texte : crème neutre universel
+    inkmut:  hslToHex(h,Math.max(s-3,0),Math.min(l+50,65)) // Texte atténué
+  };
+}
+
+function saveTheme(){try{localStorage.setItem("atelier.theme",JSON.stringify(themeState))}catch(e){}}
+function applyTheme(){
+  // Palette de fond : preset OU custom (dérivée d'une couleur de base)
+  let bg;
+  if(themeState.bg==="custom"&&themeState.bgCustomBase){
+    bg=paletteFromBase(themeState.bgCustomBase);
+  } else {
+    bg=BG_PRESETS[themeState.bg]||BG_PRESETS.v1;
+  }
+  const r=document.documentElement.style;
+  r.setProperty("--bg",bg.bg);r.setProperty("--bgsoft",bg.bgsoft);r.setProperty("--panel",bg.panel);
+  r.setProperty("--panel2",bg.panel2);r.setProperty("--line",bg.line);r.setProperty("--ink",bg.ink);r.setProperty("--inkmut",bg.inkmut);
+  r.setProperty("--acc",themeState.accent);r.setProperty("--acc2",themeState.accent2);
+  r.setProperty("--radius",themeState.radius);r.setProperty("--contentw",themeState.contentw);
+  const f=FONTS.find(x=>x.id===themeState.font)||FONTS[0];
+  r.setProperty("--fontd",f.d);r.setProperty("--fontw",f.w);r.setProperty("--fontu",f.u);
+  // --- Couleur du bois ---
+  const wc=themeState.wood||"#5a3a20";
+  r.setProperty("--wood",wc);
+  const hsl=hexToHsl(wc);
+  // Version claire (haut du dégradé) et sombre (bas)
+  r.setProperty("--wood-light",hslToHex(hsl.h,hsl.s,Math.min(hsl.l+8,55)));
+  r.setProperty("--wood-dark",hslToHex(hsl.h,hsl.s,Math.max(hsl.l-14,3)));
+  // --- Tapisserie (fond image type Hearthstone) ---
+  applyTapestry();
+  document.body.classList.toggle("no-glow",!themeState.glow);
+  document.body.classList.toggle("no-grain",!themeState.grain);
+  saveTheme();
+}
+/* Applique la tapisserie active : la bleue est embarquée (data URL), les autres
+   sont chargées depuis des fichiers .jpg à côté du HTML (si présents). */
+function applyTapestry(){
+  const id=themeState.tapestry||"blue";
+  const b=document.body;
+  // Mode "aucun fond" : on masque la tapisserie, fond sombre uni comme la V1
+  if(id==="none"){
+    b.classList.add("tap-none");
+    b.style.removeProperty("--tapestry");
+    return;
+  }
+  b.classList.remove("tap-none");
+  // Mode "image locale" : on lit le dataURL stocké dans localStorage
+  if(id==="custom"){
+    const custom=themeState.customTapestry||localStorage.getItem("atelier.customTapestry");
+    if(custom){
+      b.style.setProperty("--tapestry",'url("'+custom+'")');
+      return;
+    }
+    // Fallback si aucune image chargée → repasse en bleu
+    themeState.tapestry="blue";
+  }
+  // Presets standards
+  const p=TAPESTRY_PRESETS.find(x=>x.id===(themeState.tapestry||"blue"))||TAPESTRY_PRESETS[0];
+  const url = p.id==="blue" ? TAPESTRY_BLUE_DATAURL : p.file;
+  b.style.setProperty("--tapestry",'url("'+url+'")');
+}
+
+/* ============ SÉCURITÉ (V2 : sanitize + esc anti-XSS) ============ */
+function sanitize(html){
+  if(!html)return"";
+  const d=document.createElement("div");
+  d.innerHTML=String(html);
+  const all=d.querySelectorAll("*");
+  for(let i=0;i<all.length;i++){
+    const el=all[i],tag=el.tagName.toLowerCase();
+    if(["script","iframe","object","embed","link","meta","base"].includes(tag)){el.remove();i--;continue;}
+    for(let j=el.attributes.length-1;j>=0;j--){
+      const n=el.attributes[j].name.toLowerCase(),v=el.attributes[j].value;
+      if(n.indexOf("on")===0||((n==="href"||n==="src"||n==="xlink:href")&&/^\s*(javascript|vbscript|data:text\/html)/i.test(v)))
+        el.removeAttribute(el.attributes[j].name);
+    }
+  }
+  return d.innerHTML;
+}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function debounce(fn,ms){let t;return function(){clearTimeout(t);const a=arguments,x=this;t=setTimeout(()=>fn.apply(x,a),ms||220);};}
+

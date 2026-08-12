@@ -1,0 +1,869 @@
+/* ============ SEARCH (V1 avancé) ============ */
+let searchQ="";
+function renderSearch(){
+  const shell=$("#searchShell");if(!shell)return;
+  const q=searchQ.toLowerCase();
+  /* [FIX ④] déduplication : une page seed éditée n'apparaît plus en double */
+  const all=allArticles();
+  const res=q?all.filter(a=>a.title.toLowerCase().includes(q)||(a.excerpt||"").toLowerCase().includes(q)||(a.md||"").toLowerCase().includes(q)):[];
+  shell.innerHTML=`
+    <div class="s-field">${icon("search")}<input id="sInput" value="${searchQ.replace(/"/g,"&quot;")}" placeholder="Rechercher — ex : \"soleil\" -citadelle aether" autocomplete="off"></div>
+    ${q?`<p class="s-count">Environ <b>${res.length}</b> résultat${res.length>1?"s":""} pour « <b>${searchQ}</b> »</p>`:`<p class="s-count" style="color:var(--inkmut)">Saisissez un terme pour rechercher.</p>`}
+    ${res.map(a=>{
+      const w=(store.worlds||SEED_WORLDS).find(x=>x.id===a.world);
+      const txt=(a.excerpt||a.md||"").replace(/[#*\[\]|]/g," ").replace(/\s+/g," ").trim().slice(0,120);
+      return`<div class="s-item" data-article="${a.slug}"><div class="s-item__txt"><h4>${highlight(a.title,q)}</h4><p>${highlight(txt,q)}</p><small>${w?w.name:a.world} · ${CAT_LABELS[a.category]||a.category||""}</small></div></div>`;
+    }).join("")}`;
+  const inp=$("#sInput");if(inp)inp.focus();
+}
+/* [FIX ⑦] chaque fragment est échappé — un titre avec "<" ne casse plus la recherche */
+function highlight(text,q){if(!q)return esc(text);const re=new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")})`,"ig");return String(text).split(re).map((p,i)=>i%2?`<mark>${esc(p)}</mark>`:esc(p)).join("")}
+const _debSearch=debounce(()=>renderSearch(),180);
+document.addEventListener("input",e=>{if(e.target.id==="sInput"){searchQ=e.target.value;_debSearch();}});
+
+/* ============ SETTINGS (V1 + import/export/protect V2) ============ */
+function fmtBytes(b){
+  if(b==null||isNaN(b))return"—";
+  if(b<1024)return b+" o";
+  if(b<1048576)return(b/1024).toFixed(1)+" Ko";
+  if(b<1073741824)return(b/1048576).toFixed(1)+" Mo";
+  return(b/1073741824).toFixed(2)+" Go";
+}
+async function refreshStorageInfo(){
+  // Compteur données Atelier (approx : taille des blobs LS + IDB)
+  let dbSize=0;
+  try{
+    const keys=["pages","worlds","trash","theme","prefs"];
+    for(const k of keys){const v=localStorage.getItem("atelier."+k); if(v)dbSize+=v.length;}
+  }catch(e){}
+  const s1=$("#setDbSize");if(s1)s1.textContent=fmtBytes(dbSize);
+  // Quota navigateur
+  const u=await DB.usage();
+  const s2=$("#setQuota");
+  if(s2){
+    if(u&&u.usage!=null&&u.quota!=null){
+      s2.textContent=fmtBytes(u.usage)+" / "+fmtBytes(u.quota);
+    }else s2.textContent="n/a";
+  }
+  // Protection stockage
+  if(navigator.storage&&navigator.storage.persisted){
+    const p=await navigator.storage.persisted();
+    const btn=$("#btnPersist"),info=$("#setPersistInfo");
+    if(p){
+      if(btn){btn.textContent="Activé";btn.disabled=true;btn.style.color="#4cc38a";btn.style.borderColor="rgba(76,195,138,.4)";}
+      if(info)info.textContent="Tes mondes sont protégés contre l'effacement auto.";
+    }
+  }
+}
+function renderSettings(){
+  $("#setDataInfo").textContent=`${store.pages.length} page(s) · ${(store.worlds||SEED_WORLDS).length} mondes`;
+  const tg=$("#togGlow"),tgg=$("#togGrain");
+  if(tg)tg.classList.toggle("on",themeState.glow);
+  if(tgg)tgg.classList.toggle("on",themeState.grain);
+  refreshStorageInfo();
+}
+function toggleGlow(){themeState.glow=!themeState.glow;applyTheme();renderSettings()}
+function toggleGrain(){themeState.grain=!themeState.grain;applyTheme();renderSettings()}
+
+/* --- EXPORT complet (mondes + pages + thème + corbeille + prefs) --- */
+$("#btnExport").addEventListener("click",()=>{
+  const payload={
+    _app:"atelier",
+    _version:"1.1",
+    _exportedAt:new Date().toISOString(),
+    worlds:store.worlds||SEED_WORLDS,
+    pages:store.pages,
+    trash:trash,
+    theme:themeState,
+    prefs:_readLS("atelier.prefs",{})
+  };
+  const data=JSON.stringify(payload,null,2);
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));
+  a.download="atelier-"+new Date().toISOString().slice(0,10)+".json";
+  a.click();
+  toast("Sauvegarde exportée");
+});
+
+/* --- IMPORT sécurisé (merge par id/slug, pas d'écrasement bête) --- */
+$("#btnImport").addEventListener("click",()=>$("#importFile").click());
+$("#importFile").addEventListener("change",e=>{
+  const f=e.target.files&&e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    let data;
+    try{data=JSON.parse(ev.target.result);}
+    catch(err){toast("Fichier JSON invalide");e.target.value="";return;}
+    if(!data||typeof data!=="object"||(!Array.isArray(data.pages)&&!Array.isArray(data.worlds))){
+      toast("Format non reconnu");e.target.value="";return;
+    }
+
+    // --- Analyse préalable : combien de nouveaux vs mis à jour ---
+    const curWorlds=store.worlds||SEED_WORLDS;
+    const curPages=store.pages;
+    const curTrash=trash;
+
+    let wNew=0,wUpd=0,pNew=0,pUpd=0,tNew=0;
+    if(Array.isArray(data.worlds)){
+      data.worlds.forEach(w=>{
+        if(!w||!w.id)return;
+        curWorlds.find(x=>x.id===w.id)?wUpd++:wNew++;
+      });
+    }
+    if(Array.isArray(data.pages)){
+      data.pages.forEach(p=>{
+        if(!p||!p.slug)return;
+        curPages.find(x=>x.slug===p.slug)?pUpd++:pNew++;
+      });
+    }
+    if(Array.isArray(data.trash)){
+      data.trash.forEach(p=>{
+        if(!p||!p.slug)return;
+        if(!curTrash.find(x=>x.slug===p.slug))tNew++;
+      });
+    }
+
+    modal(`<h3>Importer cette sauvegarde ?</h3>
+      <p style="line-height:1.7">
+        <b style="color:var(--acc)">Mondes</b> : ${wNew} ajouté(s), ${wUpd} mis à jour<br>
+        <b style="color:var(--acc)">Pages</b> : ${pNew} ajoutée(s), ${pUpd} mise(s) à jour<br>
+        ${tNew?`<b style="color:var(--acc)">Corbeille</b> : ${tNew} entrée(s) ajoutée(s)<br>`:""}
+      </p>
+      <p style="color:var(--inkmut);font-size:12px;line-height:1.5">
+        ✓ Les mondes/pages existants (même identifiant) seront mis à jour.<br>
+        ✓ Les nouveaux seront ajoutés.<br>
+        ✓ Rien ne sera supprimé de ce qui existe déjà.
+      </p>
+      <div class="modal__row">
+        <button class="btn btn--ghost" data-mclose>Annuler</button>
+        <button class="btn" style="background:color-mix(in srgb,#4cc38a 20%,transparent);border:1px solid #4cc38a;color:#4cc38a" id="mImport">Fusionner</button>
+      </div>`);
+
+    /* [FIX ⑥] double-échappement : on stockait esc(titre) alors que le rendu
+       ré-échappe → "&" devenait "&amp;amp;" et empirait à CHAQUE cycle
+       export→import. Règle : le store contient du BRUT, esc() n'existe qu'au
+       rendu. unesc() répare en plus les sauvegardes déjà corrompues (décode
+       en boucle les couches d'entités accumulées, plafonné à 5). */
+    const unesc=s=>{
+      s=String(s==null?"":s);let i=0;
+      while(/&(amp|lt|gt|quot|#39);/.test(s)&&i++<5){
+        s=s.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      }
+      return s;
+    };
+    /* [FIX ⑦] sanitize(md) supprimé : il parsait le wikitext comme du HTML et
+       mutilait "a < b". Inutile désormais — le rendu échappe tout (inline). */
+    const cleanPage=p=>({...p,title:unesc(p.title||""),md:String(p.md||""),excerpt:unesc(p.excerpt||"")});
+    const cleanWorld=w=>({...w,name:unesc(w.name||""),tagline:unesc(w.tagline||"")});
+
+    const applyImport=()=>{
+      try{
+        // --- Merge des MONDES par id ---
+        if(Array.isArray(data.worlds)){
+          const merged=[...curWorlds];
+          data.worlds.forEach(w=>{
+            if(!w||!w.id)return;
+            const clean=cleanWorld(w);
+            const i=merged.findIndex(x=>x.id===w.id);
+            if(i>=0)merged[i]={...merged[i],...clean};
+            else merged.push(clean);
+          });
+          store.worlds=merged;
+        }
+        // --- Merge des PAGES par slug ---
+        if(Array.isArray(data.pages)){
+          const merged=[...curPages];
+          data.pages.forEach(p=>{
+            if(!p||!p.slug)return;
+            const clean=cleanPage(p);
+            const i=merged.findIndex(x=>x.slug===p.slug);
+            if(i>=0)merged[i]={...merged[i],...clean};
+            else merged.push(clean);
+          });
+          store.pages=merged;
+        }
+        // --- Merge CORBEILLE par slug (ajout seulement) ---
+        if(Array.isArray(data.trash)){
+          data.trash.forEach(p=>{
+            if(!p||!p.slug)return;
+            if(!trash.find(x=>x.slug===p.slug))trash.push(cleanPage(p));
+          });
+          saveTrash();
+        }
+        // --- Thème & prefs : appliquer seulement si présents ---
+        if(data.theme&&typeof data.theme==="object"){Object.assign(themeState,data.theme);applyTheme();}
+        if(data.prefs)_writeLS("atelier.prefs",data.prefs);
+
+        closeModal();renderSettings();renderHome();
+        const total=wNew+wUpd+pNew+pUpd+tNew;
+        toast(`Import fusionné : ${total} élément${total>1?"s":""} traité${total>1?"s":""} ✓`);
+      }catch(err){toast("Erreur d'import : "+err.message);}
+    };
+    /* [FIX ②] handler sur le bouton au lieu de document (une annulation
+       laissait un import fantôme prêt à fusionner des données périmées) */
+    $("#mImport").onclick=()=>applyImport();
+    e.target.value=""; // Reset input
+  };
+  r.readAsText(f);
+});
+
+/* --- PROTECTION stockage (navigator.storage.persist) --- */
+$("#btnPersist").addEventListener("click",async()=>{
+  if(!(navigator.storage&&navigator.storage.persist)){
+    toast("Non supporté par ce navigateur");return;
+  }
+  const granted=await navigator.storage.persist();
+  if(granted){
+    toast("Stockage protégé ✓");
+    const btn=$("#btnPersist"),info=$("#setPersistInfo");
+    if(btn){btn.textContent="Activé";btn.disabled=true;btn.style.color="#4cc38a";btn.style.borderColor="rgba(76,195,138,.4)";}
+    if(info)info.textContent="Tes mondes sont protégés contre l'effacement auto.";
+  }else toast("Le navigateur a refusé la protection");
+});
+
+/* --- RESET --- */
+$("#btnReset").addEventListener("click",()=>{
+  modal(`<h3>Réinitialiser ?</h3><p>Les pages créées et la corbeille seront supprimées. Les mondes d'origine restent.</p><div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn" style="background:rgba(255,93,93,.15);border:1px solid rgba(255,93,93,.4);color:#ff5d5d" id="mReset">Effacer</button></div>`);
+});
+document.addEventListener("click",e=>{
+  if(e.target.closest("#mReset")){store.pages=[];trash=[];saveTrash();closeModal();renderHome();renderSettings();toast("Atelier réinitialisé")}
+});
+
+/* ============ THEME PANEL (React presets) ============ */
+function renderThemePanel(){
+  // Swatches presets + swatch custom (si couleur perso définie)
+  const presetLabels={v1:"V1",braise:"Braise",obsidienne:"Obsidienne",fournaise:"Fournaise",cendre:"Cendre"};
+  let bgHtml=Object.keys(BG_PRESETS).map(k=>{
+    const p=BG_PRESETS[k];
+    return`<button class="swatch ${themeState.bg===k?"is-on":""}" style="background:linear-gradient(135deg,${p.panel},${p.bg})" data-bg="${k}" title="${presetLabels[k]||k}"></button>`;
+  }).join("");
+  // Swatch custom (n'apparaît que si une couleur perso a été définie)
+  if(themeState.bgCustomBase){
+    const pal=paletteFromBase(themeState.bgCustomBase);
+    bgHtml+=`<button class="swatch ${themeState.bg==="custom"?"is-on":""}" style="background:linear-gradient(135deg,${pal.panel},${pal.bg})" data-bg="custom" title="Personnalisé"></button>`;
+  }
+  $("#bgPresets").innerHTML=bgHtml;
+  // Sync du picker custom avec la couleur active
+  const curBase=themeState.bg==="custom"&&themeState.bgCustomBase
+    ? themeState.bgCustomBase
+    : (BG_PRESETS[themeState.bg]||BG_PRESETS.v1).bg;
+  const hslBg=hexToHsl(curBase);
+  const bgHex=$("#bgHex"),bgHexTxt=$("#bgHexTxt");
+  if(bgHex)bgHex.value=curBase.startsWith("#")?curBase:"#141519";
+  if(bgHexTxt)bgHexTxt.value=(curBase.startsWith("#")?curBase:"#141519").toUpperCase();
+  const bH=$("#bgH"),bS=$("#bgS"),bL=$("#bgL");
+  const bHv=$("#bgHv"),bSv=$("#bgSv"),bLv=$("#bgLv");
+  if(bH){bH.value=hslBg.h; bHv.textContent=hslBg.h+"°";}
+  if(bS){bS.value=Math.min(hslBg.s,60); bSv.textContent=hslBg.s+"%";}
+  if(bL){bL.value=Math.min(Math.max(hslBg.l,3),20); bLv.textContent=hslBg.l+"%";}
+  // --- Tapestry swatches (4 velours ornementés + custom si upload) ---
+  const swatchesHtml=TAPESTRY_PRESETS.map(t=>{
+    const bg=t.id==="blue"
+      ? `url("${TAPESTRY_BLUE_DATAURL}") center/cover`
+      : `linear-gradient(135deg,${t.preview},color-mix(in srgb,${t.preview} 55%,#000))`;
+    return `<button class="swatch swatch--tap ${themeState.tapestry===t.id?"is-on":""}" style="background:${bg}" data-tap="${t.id}" title="${esc(t.name)}"></button>`;
+  }).join("");
+  // Ajoute un swatch "custom" si une image locale a été uploadée
+  const customUrl=themeState.customTapestry||localStorage.getItem("atelier.customTapestry");
+  const customSwatch=customUrl
+    ? `<button class="swatch swatch--tap ${themeState.tapestry==="custom"?"is-on":""}" style="background:url('${customUrl}') center/cover" data-tap="custom" title="Image personnalisée"></button>`
+    : "";
+  $("#tapestryPresets").innerHTML=swatchesHtml+customSwatch;
+  // État actif des boutons "Image locale" / "Aucun fond"
+  const btnU=$("#btnTapUpload"), btnN=$("#btnTapNone");
+  if(btnU)btnU.classList.toggle("is-on",themeState.tapestry==="custom");
+  if(btnN)btnN.classList.toggle("is-on",themeState.tapestry==="none");
+  // --- Wood swatches (6 essences prédéfinies) ---
+  $("#woodPresets").innerHTML=WOOD_PRESETS.map(w=>
+    `<button class="swatch swatch--wood ${themeState.wood===w.hex?"is-on":""}" style="--wc:${w.hex}" data-wood="${w.hex}" title="${esc(w.name)}"></button>`
+  ).join("");
+  // Sync du picker custom avec la couleur actuelle
+  const wc=themeState.wood||"#5a3a20";
+  const hsl=hexToHsl(wc);
+  const woodHex=$("#woodHex"),woodHexTxt=$("#woodHexTxt");
+  if(woodHex)woodHex.value=wc;
+  if(woodHexTxt)woodHexTxt.value=wc.toUpperCase();
+  const wH=$("#woodH"),wS=$("#woodS"),wL=$("#woodL");
+  const wHv=$("#woodHv"),wSv=$("#woodSv"),wLv=$("#woodLv");
+  if(wH){wH.value=hsl.h; wHv.textContent=hsl.h+"°";}
+  if(wS){wS.value=hsl.s; wSv.textContent=hsl.s+"%";}
+  if(wL){wL.value=hsl.l; wLv.textContent=hsl.l+"%";}
+  // --- Accents / fonts / radius / width ---
+  $("#accentSwatches").innerHTML=ACCENTS.map(p=>
+    `<button class="swatch ${themeState.accent===p.a?"is-on":""}" style="background:linear-gradient(135deg,${p.b},${p.a})" data-accent="${p.a}|${p.b}" title="${p.name}"></button>`
+  ).join("")+`<label class="swatch" style="border:2px dashed var(--acc);cursor:pointer;position:relative;overflow:hidden"><input type="color" value="${themeState.accent}" style="position:absolute;inset:0;opacity:0;cursor:pointer" data-accent-picker></label>`;
+  $("#fontSeg").innerHTML=FONTS.map(f=>`<button class="${themeState.font===f.id?"is-on":""}" data-font="${f.id}" style="font-family:${f.d}">${f.name}</button>`).join("");
+  $("#radiusSeg").innerHTML=RADIUS_OPTS.map(o=>`<button class="${themeState.radius===o.v?"is-on":""}" data-radius="${o.v}">${o.l}</button>`).join("");
+  $("#widthSeg").innerHTML=WIDTH_OPTS.map(o=>`<button class="${themeState.contentw===o.v?"is-on":""}" data-width="${o.v}">${o.l}</button>`).join("");
+}
+/* Wood picker handlers */
+function setWood(hex){
+  if(!/^#[0-9a-f]{6}$/i.test(hex))return;
+  themeState.wood=hex;applyTheme();renderThemePanel();
+}
+function setWoodHSL(){
+  const h=+$("#woodH").value,s=+$("#woodS").value,l=+$("#woodL").value;
+  setWood(hslToHex(h,s,l));
+}
+document.addEventListener("click",e=>{
+  const bg=e.target.closest("[data-bg]");
+  if(bg){themeState.bg=bg.dataset.bg;applyTheme();renderThemePanel()}
+  const tap=e.target.closest("[data-tap]");
+  if(tap){themeState.tapestry=tap.dataset.tap;applyTheme();renderThemePanel()}
+  // "Image locale" → ouvre le file picker
+  if(e.target.closest("#btnTapUpload")){
+    const inp=$("#tapUploadFile"); if(inp)inp.click();
+  }
+  // "Aucun fond" → mode tap-none
+  if(e.target.closest("#btnTapNone")){
+    themeState.tapestry="none";applyTheme();renderThemePanel();
+    toast("Fond masqué");
+  }
+  const wood=e.target.closest("[data-wood]");
+  if(wood){setWood(wood.dataset.wood)}
+  const acc=e.target.closest("[data-accent]");
+  if(acc){const[a,b]=acc.dataset.accent.split("|");themeState.accent=a;themeState.accent2=b;applyTheme();renderThemePanel()}
+  const font=e.target.closest("[data-font]");
+  if(font){themeState.font=font.dataset.font;applyTheme();renderThemePanel()}
+  const rad=e.target.closest("[data-radius]");
+  if(rad){themeState.radius=rad.dataset.radius;applyTheme();renderThemePanel()}
+  const wid=e.target.closest("[data-width]");
+  if(wid){themeState.contentw=wid.dataset.width;applyTheme();renderThemePanel()}
+});
+document.addEventListener("input",e=>{
+  if(e.target.dataset.accentPicker){themeState.accent=e.target.value;themeState.accent2=e.target.value;applyTheme();renderThemePanel()}
+  // Wood color picker (color input natif)
+  if(e.target.id==="woodHex"){setWood(e.target.value)}
+  // Wood hex texte : accepte "#abc123" ou "abc123"
+  if(e.target.id==="woodHexTxt"){
+    let v=e.target.value.trim();
+    if(v&&!v.startsWith("#"))v="#"+v;
+    if(/^#[0-9a-f]{6}$/i.test(v))setWood(v);
+  }
+  // Sliders HSL bois → live preview
+  if(e.target.id==="woodH"||e.target.id==="woodS"||e.target.id==="woodL"){
+    setWoodHSL();
+  }
+  // BG color picker (color input natif) → active mode custom
+  if(e.target.id==="bgHex"){setBg(e.target.value)}
+  // BG hex texte
+  if(e.target.id==="bgHexTxt"){
+    let v=e.target.value.trim();
+    if(v&&!v.startsWith("#"))v="#"+v;
+    if(/^#[0-9a-f]{6}$/i.test(v))setBg(v);
+  }
+  // Sliders HSL bg → live preview
+  if(e.target.id==="bgH"||e.target.id==="bgS"||e.target.id==="bgL"){
+    setBgHSL();
+  }
+});
+/* Handlers picker fond custom */
+function setBg(hex){
+  if(!/^#[0-9a-f]{6}$/i.test(hex))return;
+  themeState.bgCustomBase=hex;
+  themeState.bg="custom";
+  applyTheme();renderThemePanel();
+}
+function setBgHSL(){
+  const h=+$("#bgH").value,s=+$("#bgS").value,l=+$("#bgL").value;
+  setBg(hslToHex(h,s,l));
+}
+/* [FIX ①] la croix du panneau thème consomme son entrée */
+$("#themeClose").addEventListener("click",()=>closeThemePanel());
+
+/* --- Upload d'une image locale comme tapisserie custom ---
+   L'image est redimensionnée + compressée en JPEG puis stockée en localStorage
+   sous forme de dataURL (max ~800 Ko après compression pour rester safe). */
+document.addEventListener("change",e=>{
+  if(e.target.id!=="tapUploadFile")return;
+  const f=e.target.files&&e.target.files[0]; if(!f)return;
+  if(!/^image\//.test(f.type)){toast("Ce n'est pas une image");e.target.value="";return;}
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      // Redimensionne à max 1500px de hauteur pour compression
+      const maxH=1500;
+      let W=img.naturalWidth, H=img.naturalHeight;
+      if(H>maxH){W=Math.round(W*maxH/H); H=maxH;}
+      const canvas=document.createElement("canvas");
+      canvas.width=W; canvas.height=H;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(img,0,0,W,H);
+      const dataUrl=canvas.toDataURL("image/jpeg",0.82);
+      // Stockage
+      try{
+        localStorage.setItem("atelier.customTapestry",dataUrl);
+        themeState.customTapestry=dataUrl;
+        themeState.tapestry="custom";
+        applyTheme();renderThemePanel();
+        toast("Tapisserie personnalisée appliquée");
+      }catch(err){
+        toast("Image trop lourde pour être stockée (essaie une plus petite)");
+      }
+    };
+    img.onerror=()=>toast("Impossible de lire l'image");
+    img.src=ev.target.result;
+  };
+  reader.readAsDataURL(f);
+  e.target.value=""; // Reset pour permettre de recharger la même image
+});
+// Restaurer une image custom au chargement (avant que boot() n'appelle applyTheme)
+try{
+  const savedCustom=localStorage.getItem("atelier.customTapestry");
+  if(savedCustom)themeState.customTapestry=savedCustom;
+}catch(e){}
+
+/* ============ ÉDITEUR (V1) ============ */
+/* ============ ÉDITEUR (copie fidèle V1 — 2 onglets Visuel/Wikitext) ============
+   Onglet "Visuel"  : édition directe dans #edPreview (contenteditable)
+                      → à chaque input, on convertit HTML → Wikitext (html2md)
+                      → #edBody (textarea) reste la source de vérité
+   Onglet "Wikitext": édition brute dans #edBody (textarea)
+                      → au switch vers Visuel, on convertit Wikitext → HTML (md)
+   Toolbar bas : les 6 boutons agissent selon l'onglet actif (execCommand en visuel,
+                 insertion de balises en wikitext). */
+let editingSlug=null;
+let curEdTab="visuel";
+let pvTimer=null;
+let editorCat="concept";  // Catégorie active de la page en cours d'édition
+
+function openEditor(slug){
+  navPush && navPush("editor");
+  _edEntryLive=true;   /* [FIX ①c] l'entrée éditeur existe dans l'historique */
+  editingSlug=slug||null;
+  const a=slug?findArticle(slug):null;
+  editorCat=(a&&a.category)||"concept";
+  $("#edTitle").textContent=a?"Modifier : "+a.title:"Nouvelle page";
+  $("#edName").value=a?a.title:"";
+  // Wikitext source : préfixe avec @infobox {json} si l'article a une infobox
+  // mais qu'elle n'est pas déjà présente dans le md (data legacy)
+  let content=a?(a.md||""):"";
+  if(a&&a.infobox&&Object.keys(a.infobox).length&&!content.trim().startsWith("@infobox ")){
+    content="@infobox "+JSON.stringify(a.infobox)+"\n\n"+content;
+  }
+  $("#edBody").value=content;
+  $("#editor").hidden=false;
+  $("#fab").style.display="none";
+  // Note : les chips catégorie ont été retirées du mode édition (trop encombrant sur mobile).
+  // On garde editorCat en état interne pour que la sauvegarde préserve la catégorie existante.
+  setEdTab("visuel");                       // Onglet Visuel par défaut
+  /* [FIX ⑧b] Le rendu visuel réécrit le wikitext (aller-retour md→HTML→md
+     non identique : liens développés en [[slug|titre]], espacements…).
+     La référence du « non modifié » doit être capturée APRÈS ce premier
+     aller-retour, sinon dirty est toujours vrai. */
+  syncFromPreview();
+  edHistoryReset($("#edBody").value);
+  // Curseur placé au tout début du contenu + clavier virtuel levé automatiquement
+  setTimeout(()=>focusEditorStart(),250);
+}
+/* Place le curseur au début de #edPreview et lève le clavier virtuel sur mobile.
+   Astuce : on doit d'abord focus un input "réveille-clavier" créé à la volée puis
+   basculer sur le contenteditable — sinon iOS/Android n'ouvre pas le clavier
+   parce que le focus programmatique n'est pas jugé "user-initiated". */
+function focusEditorStart(){
+  const pv=$("#edPreview"); if(!pv) return;
+  pv.focus();
+  // Positionne le curseur AU DÉBUT du contenteditable
+  try{
+    const range=document.createRange();
+    const sel=window.getSelection();
+    // Trouve le premier nœud texte ou le début du contenu
+    if(pv.firstChild){
+      range.setStart(pv.firstChild,0);
+    } else {
+      range.setStart(pv,0);
+    }
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    savedRange=range.cloneRange();
+    // Scroll en haut pour bien voir le début
+    pv.scrollTop=0;
+  }catch(_){}
+}
+
+/* Rendu des chips catégorie (Personnages / Lieux / Factions / … + bouton custom) */
+function renderEdChips(){
+  const box=$("#edChips"); if(!box) return;
+  const chips=Object.entries(CAT_LABELS).map(([k,l])=>
+    `<button class="ed-chip ${editorCat===k?"is-active":""}" data-edcat="${esc(k)}">${esc(l)}</button>`
+  ).join("");
+  box.innerHTML=chips+`<button class="ed-chip dashed" id="edAddCat">+ Catégorie</button>`;
+}
+
+/* Clic sur une chip catégorie → change editorCat */
+document.addEventListener("click",e=>{
+  const c=e.target.closest("[data-edcat]");
+  if(c){editorCat=c.dataset.edcat;renderEdChips();return;}
+  // Bouton "+ Catégorie" → modal de saisie
+  if(e.target.closest("#edAddCat")){
+    modal(`<h3>Nouvelle catégorie</h3>
+      <p style="color:var(--inkmut);font-size:12.5px;line-height:1.5">Ajoute une catégorie personnalisée à ton wiki. Elle sera disponible pour toutes les pages.</p>
+      <input id="mNewCat" placeholder="Ex : Créatures, Langues, Nations…" maxlength="30" autocomplete="off" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:14px;padding:12px 14px;outline:none;margin:8px 0 12px">
+      <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn" style="background:color-mix(in srgb,var(--acc) 20%,transparent);border:1px solid var(--acc);color:var(--acc)" id="mNewCatOk">Ajouter</button></div>`);
+    setTimeout(()=>$("#mNewCat")?.focus(),150);
+    return;
+  }
+  if(e.target.closest("#mNewCatOk")){
+    const v=($("#mNewCat")?.value||"").trim();
+    if(!v){toast("Nom vide");return;}
+    const key=slugify(v);
+    if(!key){toast("Nom invalide");return;}
+    // Ajoute au catalogue (mémoire uniquement pour l'instant — sera sauvegardé si utilisé)
+    CAT_LABELS[key]=v;
+    CAT_COLORS[key]=CAT_COLORS[key]||"#eebf4d";
+    CAT_ICONS[key]=CAT_ICONS[key]||"sparkles";
+    persistCats();   /* [FEAT] survit au rechargement */
+    editorCat=key;
+    closeModal();
+    renderEdChips();
+    toast("Catégorie « "+v+" » ajoutée");
+  }
+});
+
+/* [FIX ①] split visuel / consommant */
+function closeEditorVisual(){
+  $("#editor").hidden=true;
+  $("#fab").style.display="";
+  editingSlug=null;
+  curEdTab="visuel";
+  editorCat="concept";
+  savedRange=null;
+}
+/* [FIX ①c] confirmation de sortie — noPush=true quand appelée depuis popstate */
+function showQuitConfirm(noPush){
+  modal(`<h3>Quitter sans enregistrer ?</h3>
+    <p>Vos modifications non sauvegardées seront perdues.</p>
+    <div class="modal__row">
+      <button class="btn btn--ghost" data-mclose>Continuer</button>
+      <button class="btn btn--danger" id="mQuitEd">Quitter</button>
+    </div>`,"",noPush);
+}
+function closeEditor(force){
+  if($("#editor").hidden) return;
+  // Assure la sync avant de comparer (sinon on croit qu'il n'y a rien à sauver alors que si)
+  if(curEdTab==="visuel") syncFromPreview();
+  /* [FIX ⑧] "sale" = contenu ≠ contenu d'ouverture (edHistory[0]),
+     plus « contenu non vide » : ouvrir sans toucher = sortie directe */
+  const dirty=($("#edBody").value||"")!==((edHistory&&edHistory[0])||"");
+  if(dirty && !force){
+    showQuitConfirm(false);   // clic réel (croix ✕) : entrée normale
+    return;
+  }
+  closeEditorVisual();
+  /* [FIX ①c] ne consomme que si l'entrée éditeur existe encore */
+  if(_edEntryLive){_edEntryLive=false;consumeEntry();}
+}
+$("#edClose").addEventListener("click",()=>closeEditor(false));
+// Handler du bouton "Quitter" dans le modal
+document.addEventListener("click",e=>{
+  if(e.target.closest("#mQuitEd")){closeModal();closeEditor(true);}
+});
+
+$("#edSave").addEventListener("click",()=>{
+  // Si on est en visuel, on synchronise d'abord avant de sauver
+  if(curEdTab==="visuel") syncFromPreview();
+  const title=($("#edName").value||"").trim();
+  const wikitext=$("#edBody").value||"";
+  if(!title){toast("Donnez un nom à la page");return}
+  /* [FIX ⑤] une page existante GARDE son monde (y compris null = Inbox) —
+     avant, la sauvegarde téléportait toute page Inbox dans currentWorld */
+  const existing0=editingSlug?findArticle(editingSlug):null;
+  const world=existing0?(existing0.world||null):((currentWorld&&currentWorld.id)||"aethelgard");
+  const baseSlug=editingSlug||slugify(title);
+
+  // Détection de conflit : nouvelle page + slug déjà pris ailleurs
+  const existingSameSlug=findArticle(baseSlug);
+  const isNewPage=!editingSlug;
+  if(isNewPage && existingSameSlug){
+    // Conflit ! On propose 3 options via modal custom
+    modal(`<h3>Ce titre existe déjà</h3>
+      <p>Une page nommée <b style="color:var(--acc)">${esc(existingSameSlug.title)}</b> utilise déjà l'identifiant <code style="font-family:var(--fontm);color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent);padding:2px 6px;border-radius:5px">${esc(baseSlug)}</code>.</p>
+      <p style="color:var(--inkmut);font-size:12.5px;line-height:1.55">Que veux-tu faire ?</p>
+      <div class="modal__row" style="flex-direction:column;gap:8px;align-items:stretch">
+        <button class="btn" id="conflictEdit" style="background:color-mix(in srgb,var(--acc) 20%,transparent);border:1px solid var(--acc);color:var(--acc);text-align:left;padding:12px 14px">
+          ✏️  Modifier la page existante à la place
+        </button>
+        <button class="btn" id="conflictDup" style="background:var(--panel2);border:1px solid var(--line);color:var(--ink);text-align:left;padding:12px 14px">
+          📋  Créer une nouvelle page (suffixe auto : <code style="color:var(--acc);font-family:var(--fontm);font-size:12px">${esc(nextFreeSlug(baseSlug))}</code>)
+        </button>
+        <button class="btn btn--ghost" data-mclose style="text-align:left;padding:12px 14px">
+          ✕  Annuler (retour à l'édition)
+        </button>
+      </div>`);
+    /* [FIX ②] handlers sur les boutons du modal au lieu de document */
+    $("#conflictEdit").onclick=()=>{
+      // Bascule sur l'article existant : on adopte son slug + titre, et on relance le save
+      editingSlug=baseSlug;
+      $("#edName").value=existingSameSlug.title;
+      closeModal();
+      toast("Modification de la page existante");
+      $("#edSave").click();  // relance le save : editingSlug est défini → pas de conflit
+    };
+    $("#conflictDup").onclick=()=>{
+      // Génère un slug libre (avec suffixe -2, -3...) et sauve
+      const freeSlug=nextFreeSlug(baseSlug);
+      closeModal();
+      savePageWith(world,freeSlug,title,wikitext);
+      toast("Page « "+title+" » créée (slug : "+freeSlug+")");
+    };
+    return;  // Attente du choix
+  }
+
+  // Pas de conflit → sauvegarde directe
+  savePageWith(world,baseSlug,title,wikitext);
+  toast("Page « "+title+" » enregistrée");
+});
+
+/* Génère un slug libre en ajoutant un suffixe -2, -3, ... si nécessaire */
+function nextFreeSlug(base){
+  if(!findArticle(base)) return base;
+  let i=2;
+  while(findArticle(base+"-"+i)) i++;
+  return base+"-"+i;
+}
+
+/* Sauvegarde effective : filtre + push + ferme éditeur + refresh vue.
+   L'infobox existante est préservée telle quelle (édition via un futur mode dédié). */
+function savePageWith(world,slug,title,wikitext){
+  // L'@infobox {json} reste dans le md (approche index.html) : simple et fiable.
+  // renderArticleView() détectera sa présence pour éviter de rendre a.infobox en double.
+  const existing=findArticle(slug)||{};
+  const excerpt=wikitext
+    .replace(/^@infobox\s+\{[\s\S]*?\}\s*/,"")   // Retire l'infobox de l'excerpt uniquement
+    .replace(/^#{1,6}\s+.*$/gm,"")
+    .replace(/\[\[([^\]|]+\|)?([^\]]+)\]\]/g,"$2")
+    .replace(/\*+/g,"").replace(/^[->]\s*/gm,"")
+    .replace(/\s+/g," ").trim().slice(0,140);
+  const all=store.pages.filter(p=>p.slug!==slug);
+  all.push({
+    ...existing,
+    world,slug,title,
+    category:editorCat||existing.category||"concept",
+    excerpt,
+    views:existing.views||0,
+    tags:existing.tags||[],
+    infobox:existing.infobox||{},   // Legacy fallback (seed articles)
+    md:wikitext,                    // Contient @infobox {json} après édition
+    mts:Date.now()
+  });
+  store.pages=all;
+  /* [FIX ①c] fermeture propre : visuel + consommation SI l'entrée existe */
+  closeEditorVisual();
+  if(_edEntryLive){_edEntryLive=false;consumeEntry();}
+  if(currentArticle){currentArticle=slug;renderArticleView()}
+  else if(currentWorld){renderWorld()}
+}
+
+/* --- Bascule d'onglet Visuel <-> Wikitext --- */
+function setEdTab(t){
+  curEdTab=t;
+  document.querySelectorAll(".ed-tab").forEach(b=>b.classList.toggle("is-active",b.dataset.edtab===t));
+  $("#edPaneVisuel").hidden=t!=="visuel";
+  $("#edPaneWiki").hidden=t!=="wikitext";
+  if(t==="visuel") renderEdPreview();
+}
+document.querySelectorAll(".ed-tab").forEach(b=>b.addEventListener("click",()=>setEdTab(b.dataset.edtab)));
+
+/* --- Preview : injecte le HTML rendu depuis le Wikitext dans #edPreview --- */
+function renderEdPreview(){
+  const pv=$("#edPreview"); if(!pv)return;
+  const src=($("#edBody").value||"").trim();
+  pv.innerHTML=src?md(src):"";
+  // Supprime les hrefs des wikilinks pour éviter la navigation en cours d'édition
+  pv.querySelectorAll("a.wikilink").forEach(a=>a.removeAttribute("href"));
+}
+
+/* --- Sync : convertit le HTML édité en Wikitext (bascule visuel → source) --- */
+function html2md(root){
+  const out=[];
+  root.childNodes.forEach(n=>{
+    if(n.nodeType===3){                     // Texte nu
+      const t=n.textContent.replace(/\s+/g," ").trim();
+      if(t) out.push(t);
+      return;
+    }
+    if(n.nodeType!==1) return;
+    // Bloc infobox : ressort en @infobox {json} (peut être imbriqué dans un wrapper)
+    if(n.classList&&n.classList.contains("ib-block")){
+      out.push("@infobox "+JSON.stringify(ibFromB64(n.dataset.ib)));
+      return;
+    }
+    // Chercher un ib-block imbriqué (le contenteditable enveloppe parfois dans un <div>)
+    const nestedIb=n.querySelector&&n.querySelector(".ib-block");
+    if(nestedIb&&!n.querySelector(":scope > *:not(.ib-block)")){
+      // Le seul enfant utile est un ib-block → sort seulement lui
+      out.push("@infobox "+JSON.stringify(ibFromB64(nestedIb.dataset.ib)));
+      return;
+    }
+    const tag=n.tagName;
+    if(tag==="H2") out.push("## "+inlineMD(n));
+    else if(tag==="H3") out.push("### "+inlineMD(n));
+    else if(tag==="BLOCKQUOTE") out.push("> "+inlineMD(n).replace(/\n/g,"\n> "));
+    else if(tag==="UL"||tag==="OL"){
+      n.querySelectorAll(":scope > li").forEach(li=>out.push("- "+inlineMD(li)));
+    }
+    else if(tag==="HR") out.push("---");
+    else if(tag==="FIGURE"){
+      const im=n.querySelector("img");
+      const cap=n.querySelector("figcaption");
+      if(im) out.push(`![${cap?cap.textContent.trim():(im.alt||"")}](${im.src})`);
+    }
+    else if(tag==="IMG"){ out.push(`![${n.alt||""}](${n.src})`); }
+    else if(tag==="BR"){ /* ignoré au niveau bloc */ }
+    else if(tag==="DIV"){
+      // Le contenteditable enveloppe souvent les insertions dans un <div>.
+      // On regarde si c'est un wrapper de figure/img → on extrait proprement.
+      const fig=n.querySelector(":scope > figure");
+      const img=n.querySelector(":scope > img");
+      if(fig){
+        const im=fig.querySelector("img");
+        const cap=fig.querySelector("figcaption");
+        if(im) out.push(`![${cap?cap.textContent.trim():(im.alt||"")}](${im.src})`);
+      } else if(img){
+        out.push(`![${img.alt||""}](${img.src})`);
+      } else {
+        // <div> normal : traite comme un paragraphe (texte + inline)
+        const x=inlineMD(n);
+        if(x.trim()) out.push(x.trim());
+      }
+    }
+    else {
+      const x=inlineMD(n);
+      if(x.trim()) out.push(x.trim());
+    }
+  });
+  return out.join("\n\n");
+}
+function inlineMD(el){
+  let s="";
+  el.childNodes.forEach(n=>{
+    if(n.nodeType===3){ s+=n.textContent; return; }
+    if(n.nodeType!==1) return;
+    const t=n.tagName;
+    if(t==="B"||t==="STRONG") s+="**"+inlineMD(n)+"**";
+    else if(t==="I"||t==="EM") s+="*"+inlineMD(n)+"*";
+    else if(t==="BR") s+="\n";
+    else if(t==="A"){
+      const slug=n.dataset.article;
+      if(slug) s+="[["+slug+(n.textContent!==slug?"|"+n.textContent:"")+"]]";
+      else s+=n.textContent;
+    }
+    else s+=inlineMD(n);
+  });
+  return s;
+}
+function syncFromPreview(){
+  $("#edBody").value=html2md($("#edPreview"));
+  edHistoryPush();
+}
+$("#edPreview").addEventListener("input",()=>{
+  clearTimeout(pvTimer);
+  pvTimer=setTimeout(syncFromPreview,300);
+});
+/* Historique undo/redo — basé sur le wikitext (source de vérité).
+   On stocke des snapshots après debounce pour ne pas garder chaque frappe. */
+let edHistory=[], edHistIdx=-1, edHistLock=false, edHistTimer=null;
+function edHistoryReset(initial){
+  edHistory=[initial||""]; edHistIdx=0; edHistLock=false;
+  updateUndoRedoUI();
+}
+function edHistoryPush(){
+  if(edHistLock) return;                       // pas de snapshot pendant undo/redo lui-même
+  clearTimeout(edHistTimer);
+  edHistTimer=setTimeout(()=>{
+    const cur=$("#edBody").value;
+    if(edHistory[edHistIdx]===cur) return;     // ignore si identique au dernier snapshot
+    // Si on avait "reculé" (undo) puis on tape à nouveau → coupe la branche future
+    if(edHistIdx<edHistory.length-1) edHistory=edHistory.slice(0,edHistIdx+1);
+    edHistory.push(cur); edHistIdx++;
+    if(edHistory.length>80){ edHistory.shift(); edHistIdx--; }  // cap à 80 étapes
+    updateUndoRedoUI();
+  },350);
+}
+function edHistoryApply(txt){
+  edHistLock=true;
+  $("#edBody").value=txt;
+  if(curEdTab==="visuel") renderEdPreview();   // re-rend le visuel depuis le wikitext
+  setTimeout(()=>{edHistLock=false;},50);
+  updateUndoRedoUI();
+}
+function edUndo(){
+  if(edHistIdx<=0){toast("Rien à annuler");return;}
+  edHistIdx--; edHistoryApply(edHistory[edHistIdx]);
+}
+function edRedo(){
+  if(edHistIdx>=edHistory.length-1){toast("Rien à rétablir");return;}
+  edHistIdx++; edHistoryApply(edHistory[edHistIdx]);
+}
+function updateUndoRedoUI(){
+  const u=document.querySelector('.editor__tools--bottom .tool[data-ins="undo"]');
+  const r=document.querySelector('.editor__tools--bottom .tool[data-ins="redo"]');
+  if(u){u.style.opacity=(edHistIdx<=0)?"0.35":"1";}
+  if(r){r.style.opacity=(edHistIdx>=edHistory.length-1)?"0.35":"1";}
+}
+/* Snapshot aussi quand on tape dans le Wikitext (avec debounce) */
+$("#edBody").addEventListener("input",()=>{edHistoryPush();});
+
+/* --- Toolbar bas : agit selon l'onglet actif --- */
+document.querySelectorAll(".editor__tools--bottom .tool").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    const k=btn.dataset.ins;
+    // Undo/Redo : agissent des 2 côtés (Visuel + Wikitext) via l'historique interne
+    if(k==="undo"){edUndo();return;}
+    if(k==="redo"){edRedo();return;}
+    if(curEdTab==="visuel"){
+      // IMPORTANT : sauvegarder la position du curseur AVANT tout focus.
+      // Pour "insert" et "img", on ouvre un modal qui va perdre le focus ;
+      // savedRange permettra à insertHTMLVisuel de retrouver la bonne position.
+      saveSelectionRange();
+      // Pour "insert" et "img", pas besoin de refocus le preview (on ouvre un modal)
+      if(k!=="insert"&&k!=="img") $("#edPreview").focus();
+      if(k==="b") document.execCommand("bold");
+      else if(k==="i") document.execCommand("italic");
+      else if(k==="h2") document.execCommand("formatBlock",false,"H2");
+      else if(k==="list") document.execCommand("insertUnorderedList");
+      else if(k==="quote") document.execCommand("formatBlock",false,"BLOCKQUOTE");
+      else if(k==="link"){
+        const name=prompt("Slug de la page à lier :");
+        if(name&&name.trim()){
+          $("#edPreview").focus();
+          // Restaure le range avant l'insertion (prompt casse la sélection)
+          if(savedRange){
+            const sel=window.getSelection();
+            sel.removeAllRanges(); sel.addRange(savedRange);
+          }
+          document.execCommand("insertHTML",false,`<a class="wikilink" data-article="${name.trim()}">${name.trim()}</a>&nbsp;`);
+        }
+      }
+      else if(k==="img") $("#edImgFile").click();
+      else if(k==="insert") openInsLib();
+      // FIX : execCommand ne déclenche pas toujours "input" sur mobile → sync forcé immédiat
+      // pour que le Wikitext (source de vérité au save) reflète bien les modifs visuelles
+      if(k!=="insert"&&k!=="img") syncFromPreview();
+      return;
+    }
+    // Onglet Wikitext : insertion de balises texte dans la textarea
+    if(k==="b") edInsert("**","**","gras");
+    else if(k==="i") edInsert("*","*","italique");
+    else if(k==="h2") edInsert("\n## ","\n","Titre de section");
+    else if(k==="link") edInsert("[[","]]","slug-de-la-page");
+    else if(k==="list") edInsert("\n- ","","élément");
+    else if(k==="quote") edInsert("\n> ","","citation");
+    else if(k==="img") edInsert("\n![","](url-de-l-image)","légende");
+    else if(k==="insert") openInsLib();
+  });
+});
+/* Helper insertion dans la textarea (V1) */
+function edInsert(before,after,ph){
+  const el=$("#edBody"); if(!el) return;
+  const s=el.selectionStart||0, e=el.selectionEnd||0;
+  const sel=el.value.slice(s,e)||ph;
+  el.value=el.value.slice(0,s)+before+sel+after+el.value.slice(e);
+  el.focus();
+  el.selectionStart=s+before.length;
+  el.selectionEnd=s+before.length+sel.length;
+}
+
+/* ---- Bibliothèque d'insertion (menu Insérer style VisualEditor) ---- */

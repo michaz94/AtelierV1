@@ -1,0 +1,407 @@
+/* ============ STORE (IndexedDB + fallback localStorage) ============ */
+const DB={
+  db:null, ready:false, name:"atelier-db", ver:1,
+  open(){
+    return new Promise(res=>{
+      if(!("indexedDB"in window)){this.ready=false;return res(false);}
+      try{
+        const rq=indexedDB.open(this.name,this.ver);
+        rq.onupgradeneeded=e=>{
+          const d=e.target.result;
+          if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");
+        };
+        rq.onsuccess=e=>{this.db=e.target.result;this.ready=true;res(true);};
+        rq.onerror=()=>{this.ready=false;res(false);};
+      }catch(e){this.ready=false;res(false);}
+    });
+  },
+  get(k){
+    return new Promise(res=>{
+      if(!this.ready||!this.db)return res(null);
+      try{
+        const tx=this.db.transaction("kv","readonly").objectStore("kv").get(k);
+        tx.onsuccess=()=>res(tx.result==null?null:tx.result);
+        tx.onerror=()=>res(null);
+      }catch(e){res(null);}
+    });
+  },
+  put(k,v){
+    return new Promise(res=>{
+      if(!this.ready||!this.db)return res(false);
+      try{
+        const tx=this.db.transaction("kv","readwrite").objectStore("kv").put(v,k);
+        tx.onsuccess=()=>res(true);
+        tx.onerror=()=>res(false);
+      }catch(e){res(false);}
+    });
+  },
+  usage(){
+    return new Promise(res=>{
+      if(navigator.storage&&navigator.storage.estimate)navigator.storage.estimate().then(e=>res(e)).catch(()=>res(null));
+      else res(null);
+    });
+  }
+};
+// Cache mémoire + miroir localStorage (accès synchrone gardé)
+const _cache={pages:null,worlds:null,trash:null,theme:null,prefs:null};
+function _readLS(k,def){try{const v=localStorage.getItem(k);return v==null?def:JSON.parse(v);}catch(e){return def;}}
+function _writeLS(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+async function loadStoreFromIDB(){
+  await DB.open();
+  if(!DB.ready)return; // Fallback pur localStorage
+  const keys=["pages","worlds","trash","theme","prefs"];
+  for(const k of keys){
+    const v=await DB.get("atelier."+k);
+    if(v!=null){_cache[k]=v; _writeLS("atelier."+k,v);}
+  }
+}
+const store={
+  get pages(){if(_cache.pages!=null)return _cache.pages;const v=_readLS("atelier.pages",[]);_cache.pages=v;return v;},
+  set pages(v){_cache.pages=v;_writeLS("atelier.pages",v);DB.put("atelier.pages",v);},
+  get worlds(){if(_cache.worlds!=null)return _cache.worlds;const v=_readLS("atelier.worlds",null);_cache.worlds=v;return v;},
+  set worlds(v){_cache.worlds=v;_writeLS("atelier.worlds",v);DB.put("atelier.worlds",v);}
+};
+
+/* ============ HELPERS ============ */
+const $=s=>document.querySelector(s);
+const slugify=s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+const findArticle=s=>store.pages.find(p=>p.slug===s)||SEED_ARTICLES.find(a=>a.slug===s);
+/* [FIX ④] cherche dans TOUTES les pages (seed + créées, dédupliquées), et
+   matche le slug exact : [[sun]] ou [[sun|texte]], plus le préfixe [[sun-citadel]] */
+const backlinks=s=>{
+  const safe=String(s).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const re=new RegExp("\\[\\["+safe+"(\\]|\\|)");
+  return allArticles().filter(a=>a.slug!==s&&re.test(a.md||""));
+};
+/* allArticles : concatène SEED + store, mais déduplique par slug avec priorité
+   aux pages modifiées (store.pages écrase les seed du même slug). */
+const allArticles=()=>{
+  const map=new Map();
+  SEED_ARTICLES.forEach(a=>map.set(a.slug,a));
+  store.pages.forEach(p=>map.set(p.slug,p));  // écrase si même slug
+  return [...map.values()];
+};
+const pagesOf=id=>store.pages.filter(p=>p.world===id).length;
+const totalPages=()=>SEED_ARTICLES.length+store.pages.length;
+
+/* ============ MARKDOWN + WIKILINKS + TRANSCLUSION (V1 engine) ============ */
+/* [FIX ⑦] le texte est échappé À L'ENTRÉE du rendu : un "<" ou "&" tapé dans
+   une page s'affiche tel quel au lieu d'être avalé/interprété comme HTML.
+   Les balises générées ensuite (b, i, a, img) sont les nôtres, sûres. */
+function inline(s){s=esc(s);return s
+  .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,(m,cap,url)=>`<img src="${url}" alt="${cap}" loading="lazy">`)
+  .replace(/\*\*(.+?)\*\*/g,"<b>$1</b>")
+  .replace(/\*(.+?)\*/g,"<i>$1</i>")
+  .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,slug,txt)=>{
+    const a=findArticle(slug.trim());
+    return `<a href="#" class="wikilink ${a?"":"broken"}" data-article="${slug.trim()}">${txt||(a?a.title:slug)}</a>`;
+  });
+}
+function md(src,depth){
+  depth=depth||0;
+  if(depth<3) src=(src||"").replace(/\{\{\s*([a-z0-9-]+)\s*\}\}/g,(m,slug)=>{
+    const t=findArticle(slug.trim());
+    if(!t)return`\n> ⧼ modèle introuvable : ${slug} ⧽\n`;
+    return"\n"+md(t.md||"",depth+1)+"\n";
+  });
+  return(src||"").split(/\n{2,}/).map(b=>{
+    b=b.trim();if(!b)return"";
+    if(/^###\s/.test(b))return`<h3>${inline(b.slice(4))}</h3>`;
+    if(/^##\s/.test(b))return`<h2 id="sec-${slugify(b.slice(3))}">${inline(b.slice(3))}</h2>`;
+    /* [FIX ⑦] inline() échappe désormais : on l'applique ligne par ligne
+       PUIS on joint par <br>, sinon le <br> serait échappé lui aussi */
+    if(/^>\s/.test(b))return`<blockquote>${b.split("\n").map(l=>inline(l.replace(/^>\s?/,""))).join("<br>")}</blockquote>`;
+    if(/^[-*]\s/.test(b))return`<ul>${b.split("\n").map(l=>`<li>${inline(l.slice(2))}</li>`).join("")}</ul>`;
+    if(/^-{3,}$/.test(b))return"<hr>";
+    const figm=b.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+    /* [FIX ⑦] légende et URL échappées dans les attributs */
+    if(figm)return`<figure style="margin:14px 0"><img src="${esc(figm[2])}" alt="${esc(figm[1])}" loading="lazy" style="width:100%;border:1px solid var(--line);border-radius:10px">${figm[1]?`<figcaption style="color:var(--inkmut);font-size:12px;margin-top:6px;text-align:center">${esc(figm[1])}</figcaption>`:""}</figure>`;
+    // Bloc infobox : "@infobox {json}" → rendu comme bloc éditable (dans le visuel)
+    if(b.startsWith("@infobox ")){
+      try{return ibBlockHTML(JSON.parse(b.slice(9)));}catch(_){return"";}
+    }
+    /* [FIX ⑦] même logique : inline par ligne, jonction <br> après */
+    return`<p>${b.split("\n").map(l=>inline(l)).join("<br>")}</p>`;
+  }).join("");
+}
+/* ---- Infobox comme bloc éditable dans le visuel (V1 avancé) ---- */
+function ibB64(ib){return btoa(unescape(encodeURIComponent(JSON.stringify(ib))));}
+function ibFromB64(s){try{return JSON.parse(decodeURIComponent(escape(atob(s))));}catch(_){return{};}}
+function ibBlockHTML(ib){
+  return `<div class="ib-block" contenteditable="false" data-ib="${ibB64(ib)}">${infoboxHTML(ib,ib.headerLabel||"Infobox","concept")}</div>`;
+}
+function generateTOC(mdSrc){
+  const headings=[];
+  (mdSrc||"").split("\n").forEach(line=>{
+    const m=line.match(/^##\s+(.+)/);
+    if(m)headings.push(m[1].replace(/[*_`>\[\]#]/g,"").trim());
+  });
+  if(!headings.length)return"";
+  return`<nav style="background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:18px 0;overflow:hidden">
+    <button style="width:100%;padding:12px 14px;font-weight:800;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);text-align:left;display:flex;justify-content:space-between;align-items:center" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">${icon("list")}Sommaire${icon("chevron")}</button>
+    <ol style="list-style:none;padding:0 8px 8px">${headings.map((h,i)=>`<li><a href="#sec-${slugify(h)}" style="display:flex;gap:11px;align-items:baseline;padding:9px 8px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--inkmut);transition:.15s" onclick="document.getElementById('sec-${slugify(h)}')?.scrollIntoView({behavior:'smooth',block:'start'})"><b style="color:var(--inkmut);font-size:11.5px">${i+1}.</b>${h}</a></li>`).join("")}</ol>
+  </nav>`;
+}
+
+/* ============ INFOBOX RENDERER (V1 avancé) ============ */
+/* Copie fidèle de la V1 : rend l'image + caption + subtitle + quote + badges + sections + stats.
+   L'image utilise loading=lazy pour la perf, et esc() pour la sécurité anti-XSS. */
+function infoboxHTML(ib,title,cat){
+  ib=ib||{};
+  const hLabel=ib.headerLabel||CAT_LABELS[cat]||"Fiche";
+  const hStyle=ib.headerColor?` style="background:linear-gradient(90deg,${ib.headerColor}59,${ib.headerColor}26);border-bottom-color:${ib.headerColor}66;color:${ib.headerColor}"`:"";
+  return `<aside class="infobox">
+    <div class="infobox__t"${hStyle}>${icon(CAT_ICONS[cat]||"compass")}${esc(hLabel)}</div>
+    ${ib.image?`<img class="infobox__img" src="${ib.image}" alt="${esc(title)}" loading="lazy">${ib.caption?`<div class="ib-cap">${esc(ib.caption)}</div>`:""}`:""}
+    ${ib.subtitle?`<div class="ib-sub">${esc(ib.subtitle)}</div>`:""}
+    ${ib.quote?`<div class="ib-quote">${esc(ib.quote)}</div>`:""}
+    ${ib.badges&&ib.badges.length?`<div class="ib-badges">${ib.badges.map(b=>`<span class="ib-badge">${esc(b)}</span>`).join("")}</div>`:""}
+    ${(ib.sections||[]).map(s=>`<div class="ib-sec">${esc(s.title)}</div>`+s.fields.map(f=>`<div class="ib-row"><dt>${esc(f[0])}</dt><dd>${f[2]?`<a href="#" class="wikilink" data-article="${esc(f[2])}">${esc(f[1])}</a>`:esc(f[1])}</dd></div>`).join("")).join("")}
+    ${(ib.stats||[]).map(s=>`<div class="ib-stat"><div class="ib-stat__top"><span>${esc(s[0])}</span><span>${s[1]}/100</span></div><div class="ib-stat__bar"><i style="width:${s[1]}%;background:${s[2]}"></i></div></div>`).join("")}
+  </aside>`;
+}
+
+/* ============ TOAST ============ */
+function toast(msg){
+  const t=document.createElement("div");t.className="toast";t.innerHTML=icon("sparkles")+`<span>${msg}</span>`;
+  $("#toasts").appendChild(t);
+  setTimeout(()=>{t.classList.add("out");setTimeout(()=>t.remove(),320)},2400);
+}
+
+/* ============ NAVIGATION ============ */
+const VIEWS={home:"#view-home",projects:"#view-projects",world:"#view-world",article:"#view-article",search:"#view-search",settings:"#view-settings",inbox:"#view-inbox",trash:"#view-trash",articles:"#view-articles",categories:"#view-categories",pinned:"#view-pinned"};
+function showView(name){
+  Object.entries(VIEWS).forEach(([k,sel])=>{$(sel).hidden=k!==name});
+  document.querySelectorAll(".bnav").forEach(b=>b.classList.toggle("is-active",b.dataset.nav===name));
+  document.querySelectorAll(".drawer__item").forEach(b=>b.classList.toggle("is-active",b.dataset.nav===name));
+  // 3 modes de fond selon la vue :
+  //  - hero (vitrail King Arthur)      : home, inbox, trash
+  //  - fond sombre uni (plain-bg)      : world, article, settings, search
+  //  - tapisserie (velours encadré)    : projects, articles, categories, pinned
+  const b=document.body;
+  b.classList.remove("no-hero","plain-bg");
+  const heroViews=["home","inbox","trash"];
+  const plainViews=["world","article","settings","search"];
+  if(heroViews.includes(name)){/* hero par défaut : rien à faire */}
+  else if(plainViews.includes(name)){b.classList.add("no-hero","plain-bg");}
+  else{b.classList.add("no-hero");}
+  $("#fab").style.display=name==="search"?"none":"";
+  /* [FIX ③] l'accent d'une page ne doit pas fuir hors de la vue article */
+  if(name!=="article") applyPageTheme(null);
+  window.scrollTo({top:0});
+  if(name==="home")renderHome();
+  if(name==="projects")renderProjects();
+  if(name==="world")renderWorld();
+  if(name==="article")renderArticleView();
+  if(name==="search")renderSearch();
+  if(name==="settings")renderSettings();
+  if(name==="inbox")renderInbox();
+  if(name==="trash")renderTrash();
+  if(name==="articles")renderArticlesView();
+  if(name==="categories")renderCategoriesView();
+  if(name==="pinned")renderPinnedView();
+  revealScan();
+}
+document.addEventListener("click",e=>{
+  const nav=e.target.closest("[data-nav]");
+  if(nav){closeOverlays();showView(nav.dataset.nav)}
+});
+document.querySelectorAll(".bnav,.drawer__item").forEach(b=>{
+  b.addEventListener("click",ev=>{ev.stopPropagation();closeOverlays();showView(b.dataset.nav)});
+});
+
+/* ============ OVERLAYS ============ */
+/* [FIX ①] chaque fermeture a 2 formes : Visual (appelée par handleBack,
+   l'entrée est déjà consommée) et normale (UI : visuel + consumeEntry) */
+function closeDrawerVisual(){
+  $("#drawer").classList.remove("show");
+  if(!$("#modal").classList.contains("show")&&!$("#ibModal").classList.contains("show"))$("#scrim").classList.remove("show");
+}
+function closeDrawer(){
+  if(!$("#drawer").classList.contains("show"))return;
+  closeDrawerVisual(); consumeEntry();
+}
+function closeThemePanelVisual(){ $("#themePanel").hidden=true; }
+function closeThemePanel(){
+  if($("#themePanel").hidden)return;
+  closeThemePanelVisual(); consumeEntry();
+}
+function closeOverlays(){ closeDrawer(); closeModal(); }
+$("#btnMenu").addEventListener("click",()=>{navPush && navPush("drawer");$("#drawer").classList.add("show");$("#scrim").classList.add("show")});
+$("#scrim").addEventListener("click",()=>{
+  /* [FIX ①] ferme (en consommant) la couche que le scrim recouvre */
+  if($("#ibModal").classList.contains("show")) closeIbEdit();
+  else if($("#modal").classList.contains("show")) closeModal();
+  else closeDrawer();
+});
+$("#btnSearch").addEventListener("click",()=>{closeOverlays();showView("search")});
+$("#btnTheme").addEventListener("click",()=>{
+  /* [FIX ①] le panneau thème entre dans l'historique comme les autres */
+  if($("#themePanel").hidden){ navPush("theme"); $("#themePanel").hidden=false; }
+  else closeThemePanel();
+});
+
+/* ═════════════════════════════════════════════════════════════════
+   LIGHTBOX — tap sur une image d'article → aperçu plein écran
+   ═════════════════════════════════════════════════════════════════ */
+function openLightbox(src,caption){
+  navPush && navPush("lightbox");
+  const lb=$("#lightbox"), img=$("#lightboxImg"), cap=$("#lightboxCap");
+  img.src=src; img.alt=caption||"";
+  if(caption){cap.textContent=caption;cap.hidden=false;} else {cap.hidden=true;cap.textContent="";}
+  lb.classList.add("show");
+  document.body.style.overflow="hidden";  // empêche scroll de fond
+}
+/* [FIX ①] split visuel / consommant */
+function closeLightboxVisual(){
+  $("#lightbox").classList.remove("show");
+  $("#lightboxImg").src="";
+  document.body.style.overflow="";
+}
+function closeLightbox(){
+  if(!$("#lightbox").classList.contains("show")) return;
+  closeLightboxVisual(); consumeEntry();
+}
+$("#lightboxClose").addEventListener("click",closeLightbox);
+// Tap sur fond noir (hors image) → ferme
+$("#lightbox").addEventListener("click",e=>{
+  if(e.target.id==="lightbox") closeLightbox();
+});
+// Délégation : clic sur une image dans un article en lecture (prose OU infobox) → ouvre lightbox
+document.addEventListener("click",e=>{
+  const artView=$("#view-article");
+  if(!artView || artView.hidden) return;   // uniquement en lecture d'article
+  const img=e.target.closest("#view-article .prose img, #view-article .infobox__img");
+  if(!img) return;
+  e.preventDefault();
+  // Cherche une caption éventuelle (figcaption suivant OU div.ib-cap voisin)
+  let caption="";
+  const fig=img.closest("figure");
+  if(fig){
+    const fc=fig.querySelector("figcaption");
+    if(fc) caption=fc.textContent.trim();
+  }
+  if(!caption && img.classList.contains("infobox__img")){
+    const cap=img.parentElement.querySelector(".ib-cap");
+    if(cap) caption=cap.textContent.trim();
+  }
+  openLightbox(img.src,caption);
+});
+
+/* ═════════════════════════════════════════════════════════════════
+   BOUTON BACK MOBILE — intercepte le back Android pour fermer les
+   overlays ouverts dans l'ordre au lieu de quitter l'app.
+   ═════════════════════════════════════════════════════════════════ */
+/* On maintient une "profondeur virtuelle" via history.pushState. Chaque
+   ouverture d'overlay/vue en pousse une entrée. Le back Android déclenche
+   popstate → on ferme le dernier overlay au lieu de sortir de l'app. */
+let _navDepth=0;
+function navPush(label){
+  _navDepth++;
+  try{history.pushState({d:_navDepth,l:label||""},"","");}catch(_){}
+}
+/* [FIX ①] Consommation d'entrée : toute fermeture UI (croix, scrim, Annuler)
+   retire SA propre entrée d'historique via history.back(). Le popstate
+   correspondant est avalé par _pendingBacks — plus d'entrées fantômes. */
+let _pendingBacks=0;
+/* [FIX ①b] Les fermetures en chaîne (ex. « Quitter » = modal + éditeur)
+   déclenchaient 2 history.back() dans le même tick ; Chrome peut ignorer le
+   second → compteur désynchronisé → les vrais appuis retour suivants étaient
+   avalés → sortie brutale de l'app. On regroupe : N consommations d'un même
+   instant = UN SEUL history.go(-N) = un seul popstate. */
+/* [FIX ①c] suivi de vie des entrées : Chrome saute au back toute entrée
+   poussée sans geste utilisateur → on ne pousse plus JAMAIS pendant popstate */
+let _modalPushed=false,_edEntryLive=false;
+let _consumePending=0,_consumeTimer=null;
+/* [FIX M1] chien de garde : si le popstate attendu après history.go(-n)
+   n'arrive jamais (coalescence Chrome, pile trop courte), _pendingBacks
+   restait gonflé et AVALAIT le prochain vrai appui retour ("le back ne fait
+   rien parfois"). Passé 400 ms sans popstate, la dette est annulée. */
+let _watchdog=null;
+function armWatchdog(){
+  clearTimeout(_watchdog);
+  _watchdog=setTimeout(()=>{_pendingBacks=0;},400);
+}
+function consumeEntry(){
+  _consumePending++;
+  if(_consumeTimer)return;
+  _consumeTimer=setTimeout(()=>{
+    const n=_consumePending;_consumePending=0;_consumeTimer=null;
+    if(n>0){_pendingBacks++;try{history.go(-n);armWatchdog();}catch(_){_pendingBacks--;}}
+  },0);
+}
+/* [FIX ①] Ferme le TOPMOST — versions VISUELLES uniquement : l'entrée
+   d'historique vient d'être consommée par le back lui-même. */
+function handleBack(){
+  if($("#lightbox").classList.contains("show")){ closeLightboxVisual(); return true; }
+  /* [FEAT] médiathèque : au-dessus des modals */
+  if(!$("#mediaPicker").hidden){ closeMediaPickerVisual(); return true; }
+  if($("#modal").classList.contains("show")){ closeModalVisual(); _modalPushed=false; return true; }
+  /* [FIX ①] l'ancien test « !$("#ibModal").hidden » était TOUJOURS vrai
+     (ibModal n'a pas d'attribut hidden) — on teste la classe .show */
+  if($("#ibModal").classList.contains("show")){ closeIbEditVisual(); return true; }
+  if($("#artSheet").classList.contains("show")){ closeArtSheetVisual(); return true; }
+  if($("#ibSheet").classList.contains("show")){ closeIbSheetVisual(); return true; }
+  if($("#drawer").classList.contains("show")){ closeDrawerVisual(); return true; }
+  const fbMod=$("#copyFallbackModal");
+  if(fbMod){ fbMod.remove(); return true; }
+  if($("#editor") && !$("#editor").hidden){
+    _edEntryLive=false;   // le back vient de consommer l'entrée éditeur
+    if(curEdTab==="visuel") syncFromPreview();
+    /* [FIX ⑧] "sale" = contenu ≠ contenu d'ouverture (edHistory[0]) */
+    const dirty=($("#edBody").value||"")!==((edHistory&&edHistory[0])||"");
+    if(dirty){
+      /* [FIX ①c] AUCUN pushState ici : pendant un popstate il n'y a pas de
+         geste utilisateur → Chrome marquerait les entrées "sautables" et le
+         back suivant sauterait tout jusqu'à la sortie (le bug constaté).
+         Le modal s'affiche SANS entrée ; "Continuer" (clic réel) ré-arme. */
+      showQuitConfirm(true);
+      return true;
+    }
+    closeEditorVisual(); return true;
+  }
+  if(!$("#themePanel").hidden){ closeThemePanelVisual(); return true; }
+  const currentView=Object.entries(VIEWS).find(([k,sel])=>{const el=$(sel);return el&&!el.hidden;});
+  if(currentView){
+    const name=currentView[0];
+    if(name==="article"){ showView("world"); return "view"; }
+    if(name!=="home"){ showView("home"); return "view"; }
+  }
+  return false; // accueil nu : rien à fermer
+}
+window.addEventListener("popstate",e=>{
+  if(_pendingBacks>0){_pendingBacks--;clearTimeout(_watchdog);return;}   // back émis par consumeEntry : déjà géré [FIX M1]
+  const handled=handleBack();
+  if(handled==="view"){
+    /* [FIX ①] seul re-push : les vues n'ont pas d'entrée propre — on ré-arme
+       la sentinelle pour intercepter le back suivant */
+    try{history.pushState({d:_navDepth,l:"sentinel"},"","");}catch(_){}
+  } else if(handled===false){
+    /* [FIX ①] accueil, rien d'ouvert : sortie réelle en UN appui (la
+       sentinelle vient d'être consommée, on franchit la racine) */
+    try{history.back();}catch(_){}
+  }
+});
+/* [FIX ①] une racine + UNE sentinelle interceptable — plus de tampon mort */
+try{history.replaceState({d:0,l:"root"},"","");history.pushState({d:1,l:"sentinel"},"","");}catch(_){}
+/* [FIX ①c] la sentinelle du boot est poussée sans geste → sautable par
+   Chrome. Au premier vrai toucher, on en pousse une légitime. */
+document.addEventListener("pointerdown",function once(){
+  document.removeEventListener("pointerdown",once,true);
+  _navDepth++;try{history.pushState({d:_navDepth,l:"sentinel"},"","");}catch(_){}
+},true);
+/* [FIX ①c] filet natif : si malgré tout un back fait sortir de la page avec
+   un éditeur modifié, Chrome affiche sa propre boîte "Quitter le site ?" */
+window.addEventListener("beforeunload",e=>{
+  const ed=$("#editor");
+  if(ed&&!ed.hidden){
+    try{
+      const dirty=($("#edBody").value||"")!==((edHistory&&edHistory[0])||"");
+      if(dirty){e.preventDefault();e.returnValue="";}
+    }catch(_){}
+  }
+});
+
+/* Les fonctions d'ouverture (openArtSheet, openIbSheet, modal, openEditor)
+   sont patchées plus bas dans le fichier, une fois qu'elles sont définies. */
+

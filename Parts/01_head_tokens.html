@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Atelier — Vos projets vous attendent</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0d0b09">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,900;1,9..144,600&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ DESIGN TOKENS (fusion V1 bevel + React presets) ============ */
+:root{
+  --bg:#0d0b09;--bgsoft:#14110d;--panel:#171310;--panel2:#201a14;--line:#2b241b;
+  --ink:#f3eadf;--inkmut:#a89a89;
+  --acc:#eebf4d;--acc2:#c99a2e;
+  --radius:14px;--contentw:1240px;
+  --fontd:"Cinzel",serif;--fontw:"Cinzel",serif;--fontu:"Manrope",system-ui,sans-serif;--fontm:"JetBrains Mono",monospace;
+  --safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);
+  --nav-h:calc(64px + var(--safe-b));
+  --bevel:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  --bevel-sm:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+html,body{width:100%;max-width:100%;overflow-x:hidden}
+body{
+  font-family:var(--fontu);background:var(--bg);color:var(--ink);
+  min-height:100vh;min-height:100dvh;font-size:15px;line-height:1.5;
+  touch-action:manipulation;
+}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer;touch-action:manipulation}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--acc);color:#1a1405}
+*{scrollbar-width:none}::-webkit-scrollbar{width:0;height:0;display:none}
+svg{display:block;flex:0 0 auto}
+

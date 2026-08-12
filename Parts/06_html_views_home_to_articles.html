@@ -1,0 +1,177 @@
+<body>
+<div class="hero-bg" aria-hidden="true"></div>
+<div class="ambient" aria-hidden="true">
+  <div class="ambient__glow"></div>
+  <div class="ambient__grain"></div>
+  <div id="embers"></div>
+</div>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <button class="topbar__icon" id="btnMenu" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg></button>
+  <div class="wordmark">ATELIER<span class="wordmark__dot"></span></div>
+  <div class="topbar__right">
+    <button class="topbar__icon" id="btnSearch" aria-label="Recherche"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
+    <button class="topbar__icon" id="btnTheme" aria-label="Thème"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></button>
+  </div>
+</header>
+
+<main>
+<!-- HOME VIEW -->
+<section class="view" id="view-home">
+  <div class="shell">
+    <div style="margin-bottom:26px">
+      <p class="greet__hi" id="greetHi">Bonsoir, Michaz</p>
+      <h1 class="greet__title">Vos projets vous <em>attendent</em></h1>
+    </div>
+    <section class="reveal"><div class="stats" id="statsHud"></div></section>
+    <section class="reveal">
+      <div class="sec-head"><h3>Re-plongez-vous</h3><button data-nav="projects">Voir tout</button></div>
+      <div id="resumeRow" style="display:flex;gap:13px;overflow-x:auto;padding:2px 2px 6px"></div>
+    </section>
+    <section class="reveal">
+      <div class="prompt">
+        <div class="prompt__label" id="promptLabel"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96l6.13-1.58A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></svg> <span id="promptLabelText">Prompt du jour</span></div>
+        <p class="prompt__quote" id="promptQuote">« Décris la cité comme si le vent lui-même en était l'architecte. »</p>
+        <button class="prompt__shuffle" id="btnShuffle" title="Nouveau prompt aléatoire (maintenez pour filtrer par type)"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.8-1.1 2-1.7 3.3-1.7H22"/><path d="m18 2 4 4-4 4"/><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2"/><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8"/><path d="m18 14 4 4-4 4"/></svg></button>
+        <div class="prompt__filters" id="promptFilters"></div>
+      </div>
+    </section>
+    <section class="reveal">
+      <div class="sec-head"><h3>Activité récente</h3></div>
+      <div class="activity" id="activityFeed"></div>
+    </section>
+  </div>
+</section>
+
+<!-- PROJECTS VIEW -->
+<section class="view" id="view-projects" hidden>
+  <div class="shell">
+    <div class="p-head reveal">
+      <div class="p-head__row"><h1 class="p-head__title">Vos projets</h1><span class="p-head__count" id="pCount">0</span></div>
+      <p class="p-head__sub" id="pSub"></p>
+      <label class="p-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input id="pSearch" type="search" placeholder="Chercher un monde..." autocomplete="off"></label>
+      <div class="p-chips" id="pChips"></div>
+    </div>
+    <div class="p-grid" id="pGrid"></div>
+  </div>
+</section>
+
+<!-- WORLD VIEW -->
+<section class="view" id="view-world" hidden>
+  <div class="shell" id="worldShell"></div>
+</section>
+
+<!-- ARTICLE VIEW -->
+<section class="view" id="view-article" hidden>
+  <div class="shell" id="articleShell"></div>
+</section>
+
+<!-- INBOX VIEW -->
+<section class="view" id="view-inbox" hidden>
+  <div class="shell">
+    <div class="p-head reveal">
+      <button class="w-back" style="position:static;display:inline-flex;align-items:center;gap:8px;margin-bottom:12px" onclick="showView('home')">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        Retour
+      </button>
+      <div class="p-head__row"><h1 class="p-head__title">Inbox</h1><span class="p-head__count" id="inboxCount">0</span></div>
+      <p class="p-head__sub">Les articles sans projet, rassemblés ici. Déplace-les vers un projet depuis le menu ⋮ d'un article.</p>
+    </div>
+    <div id="inboxList"></div>
+    <div class="p-empty" id="inboxEmpty" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+      <p>L'Inbox est vide. Les pages créées sans projet arriveront ici.</p>
+    </div>
+  </div>
+</section>
+
+<!-- TRASH VIEW (V2) -->
+<section class="view" id="view-trash" hidden>
+  <div class="shell">
+    <div class="p-head reveal">
+      <button class="w-back" style="position:static;display:inline-flex;align-items:center;gap:8px;margin-bottom:12px" onclick="showView('home')">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        Retour
+      </button>
+      <div class="p-head__row"><h1 class="p-head__title">Corbeille</h1><span class="p-head__count" id="trashCount">0</span></div>
+      <p class="p-head__sub">Les pages supprimées attendent ici. Restaure-les ou efface-les définitivement.</p>
+    </div>
+    <div id="trashList"></div>
+    <div class="p-empty" id="trashEmpty" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      <p>La corbeille est vide.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ARTICLES VIEW (V2) -->
+<section class="view" id="view-articles" hidden>
+  <div class="shell">
+    <div class="p-head reveal">
+      <button class="w-back" style="position:static;display:inline-flex;align-items:center;gap:8px;margin-bottom:12px" onclick="showView('home')">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        Retour
+      </button>
+      <div class="p-head__row"><h1 class="p-head__title">Mes articles</h1><span class="p-head__count" id="artsCount">0</span></div>
+      <p class="p-head__sub" id="artsSub">Tous les articles de tes mondes, triés par dernière modification.</p>
+      <div class="p-tools" style="margin-top:10px">
+        <label class="p-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="artsSearch" type="search" placeholder="Chercher un article…" autocomplete="off">
+        </label>
+      </div>
+      <div class="p-chips" id="artsChips"></div>
+    </div>
+    <div id="artsList"></div>
+    <div class="p-empty" id="artsEmpty" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+      <p id="artsEmptyMsg">Aucun article ne correspond.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CATEGORIES VIEW (V2) -->
+<section class="view" id="view-categories" hidden>
+  <div class="shell">
+    <div class="p-head reveal">
+      <button class="w-back" style="position:static;display:inline-flex;align-items:center;gap:8px;margin-bottom:12px" onclick="showView('home')">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        Retour
+      </button>
+      <div class="p-head__row"><h1 class="p-head__title">Catégories</h1><span class="p-head__count" id="catsCount">0</span></div>
+      <p class="p-head__sub">Chaque catégorie regroupe des articles par nature. Clique pour explorer.</p>
+    </div>
+    <div id="catsGrid" class="cat-grid"></div>
+    <div class="p-empty" id="catsEmpty" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+      <p>Aucune catégorie utilisée pour l'instant. Crée un article pour voir apparaître ses catégories ici.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PINNED VIEW (V2) -->
+<section class="view" id="view-pinned" hidden>
+  <div class="shell">
+    <div class="p-head reveal">
+      <button class="w-back" style="position:static;display:inline-flex;align-items:center;gap:8px;margin-bottom:12px" onclick="showView('home')">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        Retour
+      </button>
+      <div class="p-head__row"><h1 class="p-head__title">Épinglés</h1><span class="p-head__count" id="pinnedCount">0</span></div>
+      <p class="p-head__sub">Tes mondes marqués comme importants. Épingle un monde depuis sa page.</p>
+    </div>
+    <div id="pinnedGrid" class="p-grid"></div>
+    <div class="p-empty" id="pinnedEmpty" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>
+      <p>Rien d'épinglé pour l'instant. Touche la ★ d'un monde ou d'un article.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SEARCH VIEW -->
+<section class="view search-full" id="view-search" hidden>
+  <div class="shell" id="searchShell"></div>
+</section>
+
+<!-- SETTINGS VIEW -->

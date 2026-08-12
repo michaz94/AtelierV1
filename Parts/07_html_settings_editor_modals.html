@@ -1,0 +1,304 @@
+<section class="view" id="view-settings" hidden>
+  <div class="shell">
+    <div class="p-head reveal"><div class="p-head__row"><h1 class="p-head__title">Réglages</h1></div></div>
+    <div class="set-card reveal">
+      <div class="set-row">
+        <div class="set-row__ico" style="color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96l6.13-1.58A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></svg></div>
+        <div class="set-row__txt"><b>Braises d'ambiance</b><span>Particules flottantes en arrière-plan</span></div>
+        <div class="toggle on" id="togGlow" onclick="toggleGlow()"><i></i></div>
+      </div>
+      <div class="set-row">
+        <div class="set-row__ico" style="color:#8f7bff;background:color-mix(in srgb,#8f7bff 14%,transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg></div>
+        <div class="set-row__txt"><b>Grain de texture</b><span>Overlay granuleux pour l'ambiance</span></div>
+        <div class="toggle on" id="togGrain" onclick="toggleGrain()"><i></i></div>
+      </div>
+    </div>
+    <!-- Section RÉGLAGES & DONNÉES (façon V2) -->
+    <div class="p-head reveal" style="margin-top:28px"><div class="p-head__row"><h2 class="p-head__title" style="font-size:22px">Réglages &amp; données</h2></div></div>
+    <div class="set-card reveal">
+      <div class="set-row">
+        <div class="set-row__ico" style="color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <div class="set-row__txt"><b>Protéger le stockage</b><span id="setPersistInfo">Empêcher le navigateur d'effacer tes mondes</span></div>
+        <button class="btn btn--ghost" id="btnPersist">Activer</button>
+      </div>
+      <div class="set-row">
+        <div class="set-row__ico" style="color:#4da3ff;background:rgba(77,163,255,.13)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></div>
+        <div class="set-row__txt"><b>Exporter une sauvegarde</b><span>JSON : mondes, pages, thème, corbeille</span></div>
+        <button class="btn btn--ghost" id="btnExport">Export</button>
+      </div>
+      <div class="set-row">
+        <div class="set-row__ico" style="color:#4cc38a;background:rgba(76,195,138,.13)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg></div>
+        <div class="set-row__txt"><b>Importer une sauvegarde</b><span>Restaure un fichier exporté</span></div>
+        <button class="btn btn--ghost" id="btnImport">Import</button>
+        <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+      </div>
+    </div>
+    <div class="set-card reveal">
+      <div class="set-row">
+        <div class="set-row__ico" style="color:var(--inkmut);background:color-mix(in srgb,var(--inkmut) 14%,transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></div>
+        <div class="set-row__txt"><b>Données de sauvegarde</b><span id="setDataInfo">— page(s) · — mondes</span></div>
+        <span id="setDbSize" style="color:var(--acc);font-family:var(--fontm);font-size:12px;font-weight:800">—</span>
+      </div>
+      <div class="set-row">
+        <div class="set-row__ico" style="color:var(--inkmut);background:color-mix(in srgb,var(--inkmut) 14%,transparent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+        <div class="set-row__txt"><b>Stockage navigateur</b><span>Espace utilisé par l'Atelier</span></div>
+        <span id="setQuota" style="color:var(--acc);font-family:var(--fontm);font-size:12px;font-weight:800">—</span>
+      </div>
+      <div class="set-row">
+        <div class="set-row__ico" style="color:#ff5d5d;background:rgba(255,93,93,.13)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+        <div class="set-row__txt"><b>Réinitialiser</b><span>Supprime les pages créées</span></div>
+        <button class="btn btn--ghost" style="color:#ff5d5d;border-color:rgba(255,93,93,.4)" id="btnReset">Effacer</button>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- FAB + BOTTOM NAV -->
+<button class="fab" id="fab" aria-label="Créer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+<nav class="bottomnav" id="bottomnav">
+  <button class="bnav is-active" data-nav="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5 12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>Accueil</button>
+  <button class="bnav" data-nav="projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>Projets</button>
+  <button class="bnav" data-nav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>Réglages</button>
+</nav>
+
+<!-- ÉDITEUR -->
+<!-- ===== ÉDITEUR (copie fidèle V1 : 2 onglets Visuel/Wikitext, toolbar en bas) ===== -->
+<div class="editor" id="editor" hidden>
+  <div class="editor__bar">
+    <button class="topbar__icon" id="edClose" aria-label="Fermer"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    <div class="editor__title" id="edTitle">Nouvelle page</div>
+    <button class="editor__save" id="edSave"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>Enregistrer</button>
+  </div>
+  <div class="ed-meta">
+    <input id="edName" placeholder="Titre de la page" maxlength="80" autocomplete="off">
+  </div>
+  <div class="ed-tabs">
+    <button class="ed-tab is-active" data-edtab="visuel"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>Visuel</button>
+    <button class="ed-tab" data-edtab="wikitext"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Wikitext</button>
+  </div>
+  <div class="ed-pane" id="edPaneVisuel">
+    <div class="ed-preview prose" id="edPreview" contenteditable="true" data-ph="Écris directement ici — le Wikitext se met à jour tout seul…"></div>
+  </div>
+  <div class="ed-pane" id="edPaneWiki" hidden>
+    <textarea id="edBody" class="ed-ta" placeholder="Rédigez en Wikitext…&#10;&#10;[[autre-page]] crée un lien interne.&#10;## Titre de section&#10;**gras**, *italique*, - listes, > citation."></textarea>
+  </div>
+  <div class="ed-help">Wikitext : <b>**gras**</b> · <b>*italique*</b> · <b>## section</b> · <b>[[lien]]</b> · <b>![légende](url)</b> · <b>- liste</b> · <b>&gt; citation</b></div>
+  <div class="editor__tools editor__tools--bottom">
+    <button class="tool" data-ins="undo" aria-label="Annuler" title="Annuler"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg></button>
+    <button class="tool" data-ins="redo" aria-label="Rétablir" title="Rétablir"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg></button>
+    <button class="tool" data-ins="b" aria-label="Gras"><b>G</b></button>
+    <button class="tool" data-ins="i" aria-label="Italique"><i>I</i></button>
+    <button class="tool" data-ins="h2" aria-label="Section"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M17 10c0-1 .5-2 2-2s2 1 2 2c0 1.5-2 2-2 4h4"/></svg></button>
+    <button class="tool" data-ins="link" aria-label="Lien interne"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+    <button class="tool" data-ins="list" aria-label="Liste"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></button>
+    <button class="tool" data-ins="quote" aria-label="Citation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 7 8 20l-4-4L16 3z"/><path d="m14 5 4 4"/><path d="M13 14 8 9"/></svg></button>
+    <button class="tool" data-ins="img" aria-label="Image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg></button>
+    <button class="tool tool--insert" data-ins="insert" aria-label="Insérer un bloc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+  </div>
+</div>
+<input type="file" id="edImgFile" accept="image/*" hidden>
+
+<!-- ===== MODAL D'ÉDITION DE MODÈLE (infobox) ===== -->
+<div class="modal" id="ibModal">
+  <div class="modal__card">
+    <h3 id="ibmTitle">Modifier le modèle</h3>
+    <p style="color:var(--inkmut);font-size:12px;margin:-4px 0 14px">Généré depuis : <b style="color:var(--acc)">Infobox</b></p>
+    <div class="ed-fiche" id="ibForm">
+      <div class="fgroup"><label>Ligne d'en-tête — couleur & texte</label>
+        <div class="frow"><input type="color" id="ibColor" value="#eebf4d"><input id="ibColorHex" maxlength="7" placeholder="#EEBF4D" spellcheck="false" autocomplete="off" style="flex:0 0 96px;font-family:var(--fontm),ui-monospace,monospace;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:10px 12px;outline:none"><input id="ibLabel" placeholder="Ex : Personnages, Lieux..." autocomplete="off"></div>
+      </div>
+      <div class="fgroup"><label>Image du modèle</label>
+        <div class="ed-imgrow">
+          <img id="edImgPrev" class="ed-imgprev" alt="" hidden>
+          <input id="edImg" placeholder="URL ou fichier local" inputmode="url" autocomplete="off">
+          <button type="button" class="btn btn--ghost" id="edImgPick" aria-label="Charger une image locale"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg></button>
+          <input type="file" id="edImgFile2" accept="image/*" hidden>
+        </div>
+        <div class="edqual" style="margin-top:8px"><span>Qualité</span><input type="range" id="edQual" min="0.6" max="1" step="0.01" value="0.82" aria-label="Qualité"><b id="edQualVal">0.82</b><span id="edImgSize" class="edsize"></span></div>
+        <div id="edImgNote" class="ednote" hidden></div>
+      </div>
+      <div class="fgroup"><label>Sous-titre</label><input id="ibSub" placeholder="Ex : L'Avant solaire · Porteur de l'Aube" autocomplete="off"></div>
+      <div class="fgroup"><label>Citation</label><textarea id="ibQuote" rows="2" placeholder="« ... »"></textarea></div>
+      <div class="fgroup"><label>Badges (virgules)</label><input id="ibBadges" placeholder="Grand Magister, Immortel" autocomplete="off"></div>
+      <div class="fgroup"><label>Légende de l'image</label><input id="ibCap" placeholder="Sous la photo" autocomplete="off"></div>
+      <div class="fgroup"><label>Stats — Nom|valeur|#couleur</label><textarea id="ibStats" rows="3" placeholder="Mana|96|#eab308"></textarea></div>
+      <div class="fgroup"><label>Sections — « ## Titre » puis Label|Valeur</label><textarea id="ibSecs" rows="5" placeholder="## Biographie&#10;Espèce|Elfe solaire"></textarea></div>
+    </div>
+    <div class="modal__row" style="margin-top:16px">
+      <button class="btn btn--ghost" id="ibCancel">Annuler</button>
+      <button class="btn" style="background:var(--acc);color:#1a1405;font-weight:800" id="ibAccept">Accepter</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FEUILLE D'ACTIONS MODÈLE (clic sur bloc) ===== -->
+<!-- ═══ Bottom sheet actions article (menu ⋮) ═══ -->
+<div class="ibsheet" id="artSheet">
+  <div class="ibsheet__head">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+    <b>Actions de l'article</b>
+    <button id="artSheetClose" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  </div>
+  <div class="artsheet__list">
+    <button class="artsheet__row" data-artact="theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg><span>Thème et apparence</span></button>
+    <button class="artsheet__row" data-artact="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Renommer</span></button>
+    <button class="artsheet__row" data-artact="pin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg><span data-lbl="pin">Épingler</span></button>
+    <button class="artsheet__row" data-artact="later"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="10"/></svg><span data-lbl="later">Reprendre plus tard</span></button>
+    <button class="artsheet__row" data-artact="cats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" x2="7.01" y1="7" y2="7"/></svg><span>Catégories</span></button>
+    <button class="artsheet__row" data-artact="move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span>Déplacer vers…</span></button>
+    <button class="artsheet__row" data-artact="dup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Dupliquer vers…</span></button>
+    <button class="artsheet__row" data-artact="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg><span>Historique</span></button>
+  </div>
+  <div class="ibsheet__acts">
+    <button id="artSheetTrash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button>
+  </div>
+</div>
+
+<!-- Inputs cachés pour upload cover / thumbnail depuis le thème page -->
+<input type="file" id="artCoverFile" accept="image/*" hidden>
+<input type="file" id="artThumbFile" accept="image/*" hidden>
+
+<div class="ibsheet" id="ibSheet">
+  <div class="ibsheet__head">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    <b>Modèle</b>
+    <button id="ibSheetClose" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  </div>
+  <div class="ibsheet__row">
+    <span>Généré depuis : <b id="ibSheetType">Infobox</b></span>
+    <button id="ibSheetEdit" aria-label="Modifier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
+  </div>
+  <div class="ibsheet__acts">
+    <button id="ibSheetCopy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Copier</button>
+    <button id="ibSheetDel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Supprimer</button>
+  </div>
+</div>
+
+<!-- OVERLAYS -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer__brand">ATELIER</div>
+  <p class="drawer__sub">Vos projets vous attendent</p>
+  <button class="drawer__item" data-nav="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5 12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>Accueil</button>
+  <button class="drawer__item" data-nav="projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>Projets</button>
+  <button class="drawer__item" data-nav="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Recherche</button>
+  <button class="drawer__item" data-nav="inbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>Inbox</button>
+  <button class="drawer__item" data-nav="trash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Corbeille</button>
+  <div class="drawer__foot">Atelier v2.0 — fusion V1 + V2 + React.<br>Forgé à la main, sans framework.</div>
+</aside>
+
+<div class="modal" id="modal"><div class="modal__card" id="modalCard"></div></div>
+
+<!-- Lightbox : aperçu image plein écran (article en lecture) -->
+<div class="lightbox" id="lightbox" role="dialog" aria-label="Aperçu image">
+  <button class="lightbox__close" id="lightboxClose" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  <img id="lightboxImg" alt="">
+  <div class="lightbox__cap" id="lightboxCap" hidden></div>
+</div>
+<!-- [FEAT] Médiathèque : sélecteur d'icône + couleur (20 icônes, recherche) -->
+<div class="mediapicker" id="mediaPicker" hidden>
+  <div class="mediapicker__card">
+    <div class="mediapicker__head"><b>Médiathèque</b><button id="mpClose" aria-label="Fermer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+    <input class="mediapicker__search" id="mpSearch" placeholder="Chercher une icône… (plume, château, gemme…)" autocomplete="off">
+    <div class="mediapicker__grid" id="mpGrid"></div>
+    <div class="mediapicker__colors" id="mpColors"></div>
+    <div class="mediapicker__foot"><button class="btn btn--acc" id="mpOk">Choisir</button></div>
+  </div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<!-- THEME PANEL -->
+<div class="theme-panel" id="themePanel" hidden>
+  <div class="theme-panel__head">
+    <h3>Concepteur de thème</h3>
+    <button class="topbar__icon" id="themeClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">🎨 Preset de fond</div>
+    <div class="swatches" id="bgPresets"></div>
+    <div class="wood-custom" id="bgCustom">
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl">Hex</label>
+        <input type="color" id="bgHex" class="wood-custom__color">
+        <input type="text" id="bgHexTxt" class="wood-custom__hex" maxlength="7" placeholder="#141519">
+      </div>
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl" style="min-width:38px">Teinte</label>
+        <input type="range" id="bgH" min="0" max="360" step="1" class="wood-slider">
+        <span class="wood-val" id="bgHv">220°</span>
+      </div>
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl" style="min-width:38px">Satur.</label>
+        <input type="range" id="bgS" min="0" max="60" step="1" class="wood-slider">
+        <span class="wood-val" id="bgSv">10%</span>
+      </div>
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl" style="min-width:38px">Lumin.</label>
+        <input type="range" id="bgL" min="3" max="20" step="1" class="wood-slider">
+        <span class="wood-val" id="bgLv">9%</span>
+      </div>
+    </div>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">🎭 Tapisserie (fond image)</div>
+    <div class="swatches" id="tapestryPresets"></div>
+    <div class="tap-actions">
+      <button class="tap-btn" id="btnTapUpload" title="Charger une image locale">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        Image locale
+      </button>
+      <button class="tap-btn" id="btnTapNone" title="Aucune tapisserie (fond noir V1)">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.9" x2="19.1" y1="4.9" y2="19.1"/></svg>
+        Aucun fond
+      </button>
+      <input type="file" id="tapUploadFile" accept="image/*" style="display:none">
+    </div>
+    <p style="color:var(--inkmut);font-size:11px;margin-top:8px;line-height:1.4">
+      La bleue est intégrée. Les autres nécessitent les fichiers <code>bg-velvet-*.jpg</code> à côté du HTML. L'image locale est stockée dans ton navigateur.
+    </p>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">🪵 Couleur du bois (fallback)</div>
+    <div class="swatches" id="woodPresets"></div>
+    <div class="wood-custom" id="woodCustom">
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl">Hex</label>
+        <input type="color" id="woodHex" class="wood-custom__color">
+        <input type="text" id="woodHexTxt" class="wood-custom__hex" maxlength="7" placeholder="#5a3a20">
+      </div>
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl" style="min-width:38px">Teinte</label>
+        <input type="range" id="woodH" min="0" max="360" step="1" class="wood-slider">
+        <span class="wood-val" id="woodHv">28°</span>
+      </div>
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl" style="min-width:38px">Satur.</label>
+        <input type="range" id="woodS" min="0" max="100" step="1" class="wood-slider">
+        <span class="wood-val" id="woodSv">45%</span>
+      </div>
+      <div class="wood-custom__row">
+        <label class="wood-custom__lbl" style="min-width:38px">Lumin.</label>
+        <input type="range" id="woodL" min="5" max="45" step="1" class="wood-slider">
+        <span class="wood-val" id="woodLv">18%</span>
+      </div>
+    </div>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">✨ Couleur d'accent</div>
+    <div class="swatches" id="accentSwatches"></div>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">🔤 Police des titres</div>
+    <div class="seg" id="fontSeg"></div>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">📐 Rayon des angles</div>
+    <div class="seg" id="radiusSeg"></div>
+  </div>
+  <div class="theme-group">
+    <div class="theme-group__label">↔ Largeur du contenu</div>
+    <div class="seg" id="widthSeg"></div>
+  </div>
+</div>
+

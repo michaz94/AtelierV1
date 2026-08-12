@@ -1,0 +1,771 @@
+/* ============ BIBLIOTHÈQUE D'INSERTION AVEC ONGLETS (V1 avancé) ============ */
+const SNIP={
+  table:"\n| Colonne 1 | Colonne 2 | Colonne 3 |\n|---|---|---|\n| Donnée | Donnée | Donnée |\n| Donnée | Donnée | Donnée |\n",
+  gallery:"\n![Légende de la première image](url-1)\n\n![Légende de la seconde image](url-2)\n\n![Légende de la troisième image](url-3)\n",
+  image:"\n![Légende](url-de-l-image)\n",
+  quote:"\n> Citation ou extrait important.\n",
+  list:"\n- Premier élément\n- Deuxième élément\n- Troisième élément\n",
+  section:"\n## Titre de la section\n",
+  link:"[[slug-de-la-page]]",
+  hr:"\n---\n"
+};
+/* Onglets de la bibliothèque : Modèle (templates du wiki), Infobox (nouveau bloc),
+   Image, Galerie, Tableau (chacun est un "shortcut" d'insertion) */
+const INS_CATS=[
+  {id:"modele", label:"Modèle", icon:"layers", ready:true},
+  {id:"infobox",label:"Infobox",icon:"gem",    ready:true},
+  {id:"image",  label:"Image",  icon:"image",  ready:false},
+  {id:"galerie",label:"Galerie",icon:"image",  ready:false},
+  {id:"tableau",label:"Tableau",icon:"layers", ready:false}
+];
+let insCat="modele";
+function allTemplates(){return allArticles().filter(a=>a.category==="template");}
+
+/* Insertion HTML dans le pane visuel (utilisé pour ib-block et wikilinks live) */
+/* Range mémorisé du curseur dans le pane Visuel — restauré avant chaque insertion.
+   Évite que l'insertion se fasse à la fin après ouverture de modals (perte de focus). */
+let savedRange=null;
+function saveSelectionRange(){
+  const pv=$("#edPreview"); if(!pv) return;
+  const sel=window.getSelection();
+  if(sel.rangeCount&&pv.contains(sel.anchorNode)){
+    savedRange=sel.getRangeAt(0).cloneRange();
+  }
+}
+/* On enregistre la position à chaque interaction dans le pane Visuel */
+document.addEventListener("selectionchange",()=>{
+  const pv=$("#edPreview");
+  if(!pv||$("#editor").hidden||curEdTab!=="visuel") return;
+  const sel=window.getSelection();
+  if(sel.rangeCount&&pv.contains(sel.anchorNode)){
+    savedRange=sel.getRangeAt(0).cloneRange();
+  }
+});
+
+/* Insertion d'un bloc dans le pane Visuel.
+   Approche robuste : on insère l'élément comme ENFANT DIRECT de #edPreview
+   (jamais imbriqué dans un <div> wrapper). Position :
+   - Après le noeud parent-direct où le curseur est (savedRange)
+   - Ou à la fin du preview si pas de position mémorisée */
+function insertHTMLVisuel(html){
+  const pv=$("#edPreview");
+  if(!pv) return;
+  // Créer les nouveaux nœuds à partir du HTML
+  const tmp=document.createElement("div");
+  tmp.innerHTML=html;
+  const nodes=Array.from(tmp.childNodes);
+  if(!nodes.length) return;
+  // Déterminer où insérer : après l'élément top-level qui contient le savedRange
+  let insertBefore=null;   // null = append à la fin
+  if(savedRange&&pv.contains(savedRange.startContainer)){
+    // Remonter jusqu'à trouver un enfant DIRECT de #edPreview
+    let cur=savedRange.startContainer;
+    while(cur&&cur.parentNode!==pv) cur=cur.parentNode;
+    if(cur) insertBefore=cur.nextSibling;
+  }
+  // Insertion : chaque nœud devient enfant direct de #edPreview
+  let lastInserted=null;
+  nodes.forEach(n=>{
+    if(insertBefore) pv.insertBefore(n,insertBefore);
+    else pv.appendChild(n);
+    lastInserted=n;
+  });
+  // Place le curseur après le dernier nœud inséré
+  if(lastInserted){
+    const after=document.createRange();
+    after.setStartAfter(lastInserted);
+    after.collapse(true);
+    const sel=window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(after);
+    savedRange=after.cloneRange();
+  }
+  // Sync IMMÉDIAT du Wikitext
+  syncFromPreview();
+}
+
+/* Ouvre la bibliothèque avec onglets */
+function openInsLib(){insCat="modele";renderInsLib();}
+function renderInsLib(){
+  const cur=INS_CATS.find(c=>c.id===insCat)||INS_CATS[0];
+  modal(`<div class="ins-head">
+      <span class="ins-kicker">Bibliothèque de modèles</span>
+      <button class="lb-close" data-mclose aria-label="Fermer" style="width:38px;height:38px;background:var(--panel2);border:1px solid var(--line);border-radius:50%;display:grid;place-items:center;cursor:pointer">${icon("x")||'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'}</button>
+    </div>
+    <h2 class="ins-title">${icon(cur.icon)}${esc(cur.label)}</h2>
+    <div class="ins-cats" id="insCats">
+      ${INS_CATS.map(c=>`<button class="ins-cat ${c.id===insCat?"is-active":""}" data-inscat="${c.id}">${icon(c.icon)}<span>${esc(c.label)}</span>${c.ready?"":'<i>Test</i>'}</button>`).join("")}
+    </div>
+    <div id="insBody">${renderInsBody()}</div>`);
+}
+function renderInsBody(){
+  if(insCat==="modele"){
+    const list=allTemplates();
+    if(!list.length) return `<p style="color:var(--inkmut);font-size:13px;text-align:center;padding:22px 0">Aucun modèle dans ton wiki.<br><span style="font-size:11.5px">Crée une page en catégorie « Modèles » pour en ajouter.</span></p>`;
+    return list.map(t=>`<button class="ins-row" data-intpl="${esc(t.slug)}">
+      <span class="ins-ico">${icon("code")||icon("file")}</span>
+      <span class="ins-txt"><b>${esc(t.title)}</b><small>{{${esc(t.slug)}}}</small></span>
+      <span class="ins-add">${icon("plus")||'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>'}</span>
+    </button>`).join("");
+  }
+  if(insCat==="infobox"){
+    // Restaurer depuis localStorage si dispo (survit au rechargement de la page)
+    if(!window._lastCopiedIb){
+      try{const s=localStorage.getItem("atelier:lastCopiedIb");if(s)window._lastCopiedIb=s;}catch(_){}
+    }
+    const hasCopied=!!window._lastCopiedIb;
+    return `<button class="ins-row" id="insNewIb">
+      <span class="ins-ico" style="color:var(--acc)">${icon("gem")}</span>
+      <span class="ins-txt"><b>Nouvelle Infobox</b><small>Fiche structurée pour cette page</small></span>
+      <span class="ins-add">${icon("plus")||'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>'}</span>
+    </button>
+    ${hasCopied?`<button class="ins-row" id="insPasteIb" style="border-left:3px solid #4cc38a">
+      <span class="ins-ico" style="color:#4cc38a">${icon("file")}</span>
+      <span class="ins-txt"><b style="color:#4cc38a">📋 Coller le dernier modèle copié</b><small>Insère la dernière infobox copiée (garanti — sans presse-papier système)</small></span>
+      <span class="ins-add">${icon("plus")||'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>'}</span>
+    </button>`:""}`;
+  }
+  // Autres onglets : placeholder pour l'instant
+  return `<p style="color:var(--inkmut);font-size:13px;text-align:center;padding:22px 0">Bientôt disponible.<br><span style="font-size:11.5px">Utilise l'onglet <b style="color:var(--acc)">Modèle</b> pour insérer des modèles existants.</span></p>`;
+}
+
+/* Handlers de la bibliothèque */
+document.addEventListener("click",e=>{
+  const cat=e.target.closest("[data-inscat]");
+  if(cat){insCat=cat.dataset.inscat;renderInsLib();return;}
+  const tpl=e.target.closest("[data-intpl]");
+  if(tpl){
+    const slug=tpl.dataset.intpl;
+    const el=$("#edBody");
+    if(el){
+      const txt="{{"+slug+"}}";
+      const s=el.selectionStart!=null?el.selectionStart:el.value.length;
+      const e2=el.selectionEnd!=null?el.selectionEnd:s;
+      el.value=el.value.slice(0,s)+txt+el.value.slice(e2);
+      el.selectionStart=el.selectionEnd=s+txt.length;
+      if(curEdTab==="visuel") renderEdPreview();
+    }
+    closeModal();toast("Modèle « "+slug+" » inséré");
+    return;
+  }
+  if(e.target.closest("#insNewIb")){
+    closeModal();
+    setTimeout(()=>openIbEdit(null),180);   // ouvre le formulaire pour une nouvelle infobox
+    return;
+  }
+  // Collage rapide du dernier modèle copié (fallback interne au cas où presse-papier système échoue)
+  if(e.target.closest("#insPasteIb")){
+    if(!window._lastCopiedIb){toast("Rien à coller");return;}
+    try{
+      const ib=JSON.parse(window._lastCopiedIb.slice(9));
+      closeModal();
+      setTimeout(()=>{insertHTMLVisuel(ibBlockHTML(ib));toast("Modèle collé");},180);
+    }catch(_){toast("Modèle interne invalide");}
+    return;
+  }
+});
+
+/* Ancien insertSnippet gardé pour compat (menus + boutons toolbar) */
+function insertSnippet(key){
+  const txt=SNIP[key]; if(!txt) return;
+  const el=$("#edBody"); if(!el) return;
+  const s=el.selectionStart!=null?el.selectionStart:el.value.length;
+  const e=el.selectionEnd!=null?el.selectionEnd:s;
+  el.value=el.value.slice(0,s)+txt+el.value.slice(e);
+  el.focus();
+  el.selectionStart=el.selectionEnd=s+txt.length;
+  if(curEdTab==="visuel") renderEdPreview();
+  closeModal();
+}
+
+/* ============ ÉDITION DE MODÈLE INFOBOX (modal ibModal) ============ */
+let activeIbBlock=null;   // référence au bloc DOM en cours d'édition (ou null si nouveau)
+
+function openIbEdit(block){
+  navPush && navPush("ibmodal");
+  activeIbBlock=block||null;
+  const ib=block?ibFromB64(block.dataset.ib):{};
+  $("#ibmTitle").textContent=block?"Modifier le modèle":"Nouveau modèle Infobox";
+  $("#ibColor").value=ib.headerColor||"#eebf4d";
+  $("#ibColorHex").value=(ib.headerColor||"#eebf4d").toUpperCase();
+  $("#ibLabel").value=ib.headerLabel||"";
+  $("#edImg").value=ib.image||"";
+  $("#ibCap").value=ib.caption||"";
+  $("#ibSub").value=ib.subtitle||"";
+  $("#ibQuote").value=ib.quote||"";
+  $("#ibBadges").value=(ib.badges||[]).join(", ");
+  $("#ibStats").value=(ib.stats||[]).map(s=>`${s[0]}|${s[1]}|${s[2]||"#eebf4d"}`).join("\n");
+  $("#ibSecs").value=(ib.sections||[]).map(s=>`## ${s.title}\n`+(s.fields||[]).map(f=>f.join("|")).join("\n")).join("\n\n");
+  const prev=$("#edImgPrev");
+  if(ib.image){prev.src=ib.image;prev.hidden=false;probeImg(ib.image);}
+  else{prev.hidden=true;prev.src="";setNote("");}
+  $("#ibModal").classList.add("show");
+  $("#scrim").classList.add("show");
+}
+/* [FIX ①] split visuel / consommant */
+function closeIbEditVisual(){
+  $("#ibModal").classList.remove("show");
+  if(!$("#drawer").classList.contains("show")&&!$("#modal").classList.contains("show")) $("#scrim").classList.remove("show");
+  activeIbBlock=null;
+}
+function closeIbEdit(){
+  if(!$("#ibModal").classList.contains("show"))return;
+  closeIbEditVisual(); consumeEntry();
+}
+function parseSections(txt){
+  const secs=[]; let cur=null;
+  for(const line of (txt||"").split("\n")){
+    const t=line.trim(); if(!t) continue;
+    if(t.startsWith("## ")){cur={title:t.slice(3),fields:[]}; secs.push(cur);}
+    else{
+      const parts=t.split("|").map(s=>s.trim());
+      if(parts.length>=2&&parts[0]){
+        if(!cur){cur={title:"Infos",fields:[]};secs.push(cur);}
+        cur.fields.push(parts);
+      }
+    }
+  }
+  return secs;
+}
+function collectIbEdit(){
+  const ib={};
+  ib.headerColor=$("#ibColor").value||"#eebf4d";
+  ib.headerLabel=$("#ibLabel").value.trim();
+  ib.image=$("#edImg").value.trim();
+  ib.caption=$("#ibCap").value.trim();
+  ib.subtitle=$("#ibSub").value.trim();
+  ib.quote=$("#ibQuote").value.trim();
+  ib.badges=$("#ibBadges").value.split(",").map(s=>s.trim()).filter(Boolean);
+  ib.stats=$("#ibStats").value.split("\n").map(l=>l.split("|").map(s=>s.trim())).filter(r=>r[0]&&r.length>=2).map(r=>[r[0],+r[1]||0,r[2]||"#eebf4d"]);
+  ib.sections=parseSections($("#ibSecs").value);
+  if(!ib.headerLabel) delete ib.headerLabel;
+  if(!ib.headerColor||ib.headerColor==="#eebf4d") delete ib.headerColor;
+  if(!ib.image) delete ib.image;
+  if(!ib.caption) delete ib.caption;
+  if(!ib.subtitle) delete ib.subtitle;
+  if(!ib.quote) delete ib.quote;
+  if(!ib.badges.length) delete ib.badges;
+  if(!ib.stats.length) delete ib.stats;
+  if(!ib.sections.length) delete ib.sections;
+  return ib;
+}
+$("#ibCancel").addEventListener("click",closeIbEdit);
+$("#ibAccept").addEventListener("click",()=>{
+  const ib=collectIbEdit();
+  if(activeIbBlock){
+    // Remplace le bloc existant
+    const tmp=document.createElement("div");
+    tmp.innerHTML=ibBlockHTML(ib);
+    activeIbBlock.replaceWith(tmp.firstChild);
+  } else {
+    // Insert un nouveau bloc dans le visuel
+    insertHTMLVisuel(ibBlockHTML(ib));
+  }
+  closeIbEdit();
+  syncFromPreview();
+  toast("Modèle mis à jour");
+});
+
+/* Synchro bidirectionnelle picker de couleur ↔ champ hexadécimal */
+$("#ibColor").addEventListener("input",()=>{
+  $("#ibColorHex").value=$("#ibColor").value.toUpperCase();
+});
+$("#ibColorHex").addEventListener("input",e=>{
+  let v=e.target.value.trim();
+  if(v&&!v.startsWith("#"))v="#"+v;
+  if(/^#[0-9a-fA-F]{6}$/.test(v)) $("#ibColor").value=v.toLowerCase();
+});
+
+/* Aperçu URL live + analyse netteté */
+document.addEventListener("input",e=>{
+  if(e.target.id==="edImg"){
+    const url=e.target.value.trim();
+    const prev=$("#edImgPrev");
+    if(url){prev.src=url;prev.hidden=false;probeImg(url);}
+    else{prev.hidden=true;prev.src="";setNote("");}
+  }
+  if(e.target.id==="edQual"){$("#edQualVal").textContent=(+e.target.value).toFixed(2);}
+});
+function setNote(kind,txt){
+  const n=$("#edImgNote"); if(!n) return;
+  if(!txt){n.hidden=true;n.className="ednote";return;}
+  n.hidden=false;n.className="ednote "+kind;
+  const ic=kind==="ok"?"check":kind==="bad"?"x":"eye";
+  n.innerHTML=(icon(ic)||"")+`<span>${esc(txt)}</span>`;
+}
+function checkSharp(w,h){
+  const long=Math.max(w,h);
+  if(long<600) setNote("bad",`Pixelisation probable — ${long}px détectés (min. recommandé : 800px).`);
+  else if(long<800) setNote("warn",`Image un peu juste — ${long}px détectés.`);
+  else if(long>=1200) setNote("ok",`${w}×${h}px — net à 100% sur ton écran.`);
+  else setNote("");
+}
+function probeImg(url){
+  const t=new Image();
+  t.onload=()=>checkSharp(t.naturalWidth,t.naturalHeight);
+  t.onerror=()=>setNote("");
+  t.src=url;
+}
+/* Upload d'image locale dans le modal ibModal */
+$("#edImgPick").addEventListener("click",()=>$("#edImgFile2").click());
+$("#edImgFile2").addEventListener("change",e=>{
+  const f=e.target.files[0]; e.target.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      const MAX=1200, q=+$("#edQual").value||0.82;
+      const s=Math.min(1, MAX/Math.max(img.width,img.height));
+      const c=document.createElement("canvas");
+      c.width=Math.round(img.width*s);
+      c.height=Math.round(img.height*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      const url=c.toDataURL("image/jpeg",q);
+      $("#edImg").value=url;
+      $("#edImgPrev").src=url;
+      $("#edImgPrev").hidden=false;
+      $("#edImgSize").textContent=Math.round(url.length/1024)+" Ko";
+      checkSharp(c.width,c.height);
+    };
+    img.src=rd.result;
+  };
+  rd.readAsDataURL(f);
+});
+
+/* ============ IBSHEET : bottom sheet quand on clique sur un ib-block ============ */
+let sheetBlock=null;
+function openIbSheet(block){
+  navPush && navPush("ibsheet");
+  sheetBlock=block;
+  document.querySelectorAll(".ib-block.sel").forEach(x=>x.classList.remove("sel"));
+  block.classList.add("sel");
+  // Ferme le clavier virtuel s'il est ouvert (sinon la feuille est cachée derrière)
+  hideVirtualKeyboard();
+  $("#ibSheet").classList.add("show");
+}
+/* [FIX ①] split visuel / consommant */
+function closeIbSheetVisual(){
+  $("#ibSheet").classList.remove("show");
+  document.querySelectorAll(".ib-block.sel").forEach(x=>x.classList.remove("sel"));
+  sheetBlock=null;
+}
+function closeIbSheet(){
+  if(!$("#ibSheet").classList.contains("show"))return;
+  closeIbSheetVisual(); consumeEntry();
+}
+/* Force la fermeture du clavier virtuel en retirant le focus de l'élément actif */
+function hideVirtualKeyboard(){
+  const a=document.activeElement;
+  if(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.isContentEditable)){
+    a.blur();
+  }
+}
+/* Détection ouverture/fermeture du clavier virtuel via visualViewport.
+   Quand le clavier apparaît, la hauteur visible chute d'au moins 150px → on ferme la feuille infobox. */
+if(window.visualViewport){
+  let lastVH=window.visualViewport.height;
+  window.visualViewport.addEventListener("resize",()=>{
+    const vh=window.visualViewport.height;
+    const diff=lastVH-vh;
+    // Clavier qui monte (perte de hauteur significative) → ferme la sheet si elle est ouverte
+    if(diff>150 && $("#ibSheet").classList.contains("show")){
+      closeIbSheet();
+    }
+    /* [FIX M3] même protection pour la sheet ⋮ d'article (oubliée à l'origine) */
+    if(diff>150 && $("#artSheet").classList.contains("show")){
+      closeArtSheet();
+    }
+    lastVH=vh;
+  });
+}
+$("#ibSheetClose").addEventListener("click",closeIbSheet);
+$("#ibSheetEdit").addEventListener("click",()=>{
+  /* [FIX ①b] fermer (consommer) AVANT d'ouvrir, sinon le back de la
+     consommation retirait l'entrée du modal fraîchement poussée */
+  if(sheetBlock){const b=sheetBlock;closeIbSheet();setTimeout(()=>openIbEdit(b),150);}
+});
+$("#ibSheetCopy").addEventListener("click",()=>{
+  if(sheetBlock){
+    const txt="@infobox "+JSON.stringify(ibFromB64(sheetBlock.dataset.ib));
+    // 1) Canal interne GARANTI — alimente enfin le bouton « Coller le dernier modèle »
+    window._lastCopiedIb=txt;
+    try{localStorage.setItem("atelier:lastCopiedIb",txt);}catch(_){}
+    // 2) Presse-papiers système, avec vrai repli et toast honnête
+    const fallback=()=>{
+      const ta=document.createElement("textarea"); ta.value=txt;
+      ta.style.position="fixed"; ta.style.opacity="0";
+      document.body.appendChild(ta); ta.select();
+      let ok=false; try{ok=document.execCommand("copy");}catch(_){}
+      ta.remove();
+      toast(ok?"Modèle copié dans le presse-papier"
+              :"Copié en interne — retrouvez-le dans + → Infobox → « Coller le dernier modèle »");
+    };
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt)
+        .then(()=>toast("Modèle copié — collez-le où vous voulez"))
+        .catch(fallback);
+    } else fallback();
+  }
+  closeIbSheet();
+});
+
+$("#edPreview").addEventListener("paste",e=>{
+  const t=(e.clipboardData&&e.clipboardData.getData("text"))||"";
+  if(t.trim().startsWith("@infobox ")){
+    e.preventDefault(); // empêche le collage brut du texte
+    try{ insertHTMLVisuel(ibBlockHTML(JSON.parse(t.trim().slice(9)))); }catch(_){}
+  }
+});
+$("#ibSheetDel").addEventListener("click",()=>{
+  if(sheetBlock){
+    sheetBlock.remove();
+    closeIbSheet();syncFromPreview();
+    toast("Modèle supprimé");
+  }
+});
+/* Clic sur un ib-block dans le visuel → ouvre la sheet */
+document.addEventListener("click",e=>{
+  const b=e.target.closest(".ib-block");
+  if(!b) return;
+  // Ne réagit que si on est dans l'éditeur (preview visuel)
+  if(!$("#edPreview")||!$("#edPreview").contains(b)) return;
+  openIbSheet(b);
+});
+
+/* --- Image locale : compression canvas puis insertion dans le preview visuel --- */
+$("#edImgFile").addEventListener("change",e=>{
+  const f=e.target.files[0]; e.target.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const img=new Image();
+    img.onload=()=>{
+      const MAX=1200, q=0.82;
+      const s=Math.min(1, MAX/Math.max(img.width,img.height));
+      const c=document.createElement("canvas");
+      c.width=Math.round(img.width*s);
+      c.height=Math.round(img.height*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      const url=c.toDataURL("image/jpeg",q);
+      // Insertion selon l'onglet actif (utilise savedRange pour placer au bon endroit)
+      if(curEdTab==="visuel"){
+        insertHTMLVisuel(`<figure class="md-fig"><img src="${url}" alt="" loading="lazy"></figure>`);
+      } else {
+        edInsert("\n![","]("+url+")","légende");
+      }
+    };
+    img.src=rd.result;
+  };
+  rd.readAsDataURL(f);
+});
+
+/* ============ INBOX (V2) ============ */
+function renderInbox(){
+  const list=store.pages.filter(p=>!p.world||p.world==="inbox");
+  $("#inboxCount").textContent=list.length;
+  const box=$("#inboxList"), empty=$("#inboxEmpty");
+  if(!box)return;
+  if(list.length){
+    box.hidden=false; if(empty)empty.hidden=true;
+    box.innerHTML=list.map(a=>`<div class="list-card" onclick="openArticle('${esc(a.slug)}')"><div class="list-card__ico" style="color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent)">${icon("file")}</div><div class="list-card__txt"><h4>${esc(a.title)}</h4><p>${esc(a.excerpt||"")}</p></div><span style="color:var(--inkmut)">${icon("chevron")}</span></div>`).join("");
+  } else {
+    box.hidden=true; if(empty)empty.hidden=false;
+    box.innerHTML="";
+  }
+}
+
+/* ============ CORBEILLE (V2 + IndexedDB + modal custom) ============ */
+let trash=_readLS("atelier.trash",[]);
+_cache.trash=trash;
+function saveTrash(){_cache.trash=trash;_writeLS("atelier.trash",trash);DB.put("atelier.trash",trash);}
+function trashPage(slug){
+  const a=findArticle(slug);if(!a)return;
+  modal(`<h3>Envoyer dans la corbeille ?</h3><p>« ${esc(a.title)} » sera déplacée dans la corbeille. Tu pourras la restaurer.</p><div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn" style="background:color-mix(in srgb,var(--acc) 20%,transparent);border:1px solid var(--acc);color:var(--acc)" id="mTrash">Envoyer</button></div>`);
+  /* [FIX ②] handler sur le bouton au lieu de document */
+  $("#mTrash").onclick=()=>{
+    trash.push({...a,trashedAt:Date.now()});
+    store.pages=store.pages.filter(p=>p.slug!==slug);
+    saveTrash();closeModal();showView("world");toast("Page envoyée dans la corbeille");
+  };
+}
+function restorePage(slug){
+  const idx=trash.findIndex(p=>p.slug===slug);
+  if(idx<0)return;
+  const a=trash.splice(idx,1)[0];
+  delete a.trashedAt;
+  store.pages=[...store.pages,a];
+  saveTrash();renderTrash();toast("Page restaurée : "+a.title);
+}
+function deletePerm(slug){
+  const a=trash.find(p=>p.slug===slug); if(!a)return;
+  modal(`<h3>Supprimer définitivement ?</h3><p>« ${esc(a.title)} » sera perdue à jamais.</p><div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn" style="background:rgba(255,93,93,.15);border:1px solid rgba(255,93,93,.4);color:#ff5d5d" id="mDel">Supprimer</button></div>`);
+  /* [FIX ②] handler sur le bouton au lieu de document */
+  $("#mDel").onclick=()=>{
+    trash=trash.filter(p=>p.slug!==slug);
+    saveTrash();closeModal();renderTrash();toast("Supprimé définitivement");
+  };
+}
+function renderTrash(){
+  const c=$("#trashCount");if(c)c.textContent=trash.length;
+  const box=$("#trashList"), empty=$("#trashEmpty");
+  if(!box)return;
+  if(trash.length){
+    box.hidden=false; if(empty)empty.hidden=true;
+    box.innerHTML=trash.map(a=>`<div class="list-card"><div class="list-card__ico" style="color:#ff5d5d;background:rgba(255,93,93,.13)">${icon("trash")}</div><div class="list-card__txt"><h4>${esc(a.title)}</h4><p>Supprimé ${timeAgo(a.trashedAt)}</p></div><div style="display:flex;gap:6px"><button onclick="restorePage('${esc(a.slug)}')" style="color:#4cc38a;font-size:11px;font-weight:800;padding:4px 8px;border:1px solid rgba(76,195,138,.4);border-radius:8px">↩</button><button onclick="deletePerm('${esc(a.slug)}')" style="color:#ff5d5d;font-size:11px;font-weight:800;padding:4px 8px;border:1px solid rgba(255,93,93,.4);border-radius:8px">✕</button></div></div>`).join("");
+  } else {
+    box.hidden=true; if(empty)empty.hidden=false;
+    box.innerHTML="";
+  }
+}
+function timeAgo(ts){
+  if(!ts)return"à l'instant";
+  const s=Math.floor((Date.now()-ts)/1000);
+  if(s<60)return"à l'instant";
+  const m=Math.floor(s/60);if(m<60)return"il y a "+m+" min";
+  const h=Math.floor(m/60);if(h<24)return"il y a "+h+" h";
+  const d=Math.floor(h/24);return"il y a "+d+" j";
+}
+
+/* ============ MODAL ============ */
+function modal(html,extraClass,noPush){
+  /* [FIX ①c] noPush : modal ouvert pendant un popstate (back Android) — on
+     n'empile rien, l'entrée serait "sautable" et casserait le back suivant */
+  if(!noPush){navPush && navPush("modal");_modalPushed=true;}
+  else _modalPushed=false;
+  const card=$("#modalCard");
+  card.className="modal__card"+(extraClass?" "+extraClass:"");
+  card.innerHTML=html;
+  $("#modal").classList.add("show");
+  $("#scrim").classList.add("show");
+}
+/* [FIX ①] split visuel / consommant */
+function closeModalVisual(){$("#modal").classList.remove("show");if(!$("#drawer").classList.contains("show")&&!$("#ibModal").classList.contains("show"))$("#scrim").classList.remove("show")}
+function closeModal(){
+  if(!$("#modal").classList.contains("show"))return;
+  closeModalVisual();
+  /* [FIX ①c] ne consomme que si une entrée avait été poussée */
+  if(_modalPushed){_modalPushed=false;consumeEntry();}
+  /* [FIX ①c] ré-arme l'entrée éditeur si le back l'avait consommée pendant
+     le dialogue "Quitter ?" — on est dans un clic réel : entrée valide */
+  const ed=$("#editor");
+  if(ed&&!ed.hidden&&!_edEntryLive){navPush("editor");_edEntryLive=true;}
+}
+$("#modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal()});
+
+/* ============ FAB ============ */
+/* ═══ [FEAT] MÉDIATHÈQUE : sélecteur icône + couleur réutilisable ═══ */
+const ICON_NAMES={compass:"boussole exploration",feather:"plume écriture",castle:"château lieu",gem:"gemme artefact",file:"page document",users:"personnages groupe",link:"lien chaîne",clock:"horloge temps événement",map:"carte territoire",sparkles:"étoiles magie",arrow:"flèche retour",chevron:"chevron suivant",layers:"couches pile",trash:"corbeille poubelle",save:"sauvegarde disquette",heading:"titre texte",list:"liste puces",image:"image photo",pencil:"crayon édition",folder:"dossier catégorie"};
+const MP_COLORS=["#eebf4d","#4da3ff","#4cc38a","#ff7a5c","#8f7bff","#5fd4e6","#ff5d5d","#6fae3f","#c084fc","#ffb347","#f5c542","#9a9ca6"];
+let _mpCb=null,_mpIcon="folder",_mpColor="#eebf4d";
+function openIconPicker(cur,cb){
+  _mpCb=cb;_mpIcon=(cur&&cur.icon)||"folder";_mpColor=(cur&&cur.color)||"#eebf4d";
+  navPush&&navPush("mediapicker");
+  $("#mpSearch").value="";renderMpGrid("");renderMpColors();
+  $("#mediaPicker").hidden=false;
+}
+function closeMediaPickerVisual(){$("#mediaPicker").hidden=true;_mpCb=null;}
+function closeMediaPicker(){if($("#mediaPicker").hidden)return;closeMediaPickerVisual();consumeEntry();}
+function renderMpGrid(q){
+  q=(q||"").toLowerCase();
+  $("#mpGrid").innerHTML=Object.keys(ICO).filter(k=>!q||k.includes(q)||(ICON_NAMES[k]||"").includes(q))
+    .map(k=>`<button class="mp-ico ${k===_mpIcon?"sel":""}" data-mpico="${k}" title="${esc(ICON_NAMES[k]||k)}">${icon(k)}</button>`).join("")
+    ||`<p style="grid-column:1/-1;color:var(--inkmut);font-size:12.5px;text-align:center;padding:14px 0">Aucune icône ne correspond.</p>`;
+}
+function renderMpColors(){
+  $("#mpColors").innerHTML=MP_COLORS.map(c=>`<button class="mp-col ${c===_mpColor?"sel":""}" style="background:${c}" data-mpcol="${c}" aria-label="${c}"></button>`).join("");
+}
+document.addEventListener("click",e=>{
+  const i=e.target.closest("[data-mpico]");if(i){_mpIcon=i.dataset.mpico;renderMpGrid($("#mpSearch").value);return;}
+  const c=e.target.closest("[data-mpcol]");if(c){_mpColor=c.dataset.mpcol;renderMpColors();return;}
+});
+document.addEventListener("input",e=>{if(e.target.id==="mpSearch")renderMpGrid(e.target.value);});
+$("#mpClose").addEventListener("click",closeMediaPicker);
+$("#mpOk").addEventListener("click",()=>{const cb=_mpCb;const sel={icon:_mpIcon,color:_mpColor};closeMediaPicker();if(cb)setTimeout(()=>cb(sel),50);});
+
+/* ═══ [FEAT] Catégories personnalisées PERSISTÉES (avant : mémoire seule,
+   perdues au rechargement) ═══ */
+function persistCats(){try{localStorage.setItem("atelier.cats",JSON.stringify({labels:CAT_LABELS,colors:CAT_COLORS,icons:CAT_ICONS}));}catch(_){}}
+function openNewCatModal(){
+  let mpI="folder",mpC="#eebf4d";
+  modal(`<h3>Nouvelle catégorie</h3>
+    <input id="mCatName" placeholder="Ex : Créatures, Langues, Nations…" maxlength="30" autocomplete="off">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+      <span id="mCatPrev" style="width:42px;height:42px;border-radius:11px;display:grid;place-items:center;flex:0 0 auto;color:#eebf4d;background:#eebf4d22;border:1px solid var(--line)">${icon("folder")}</span>
+      <button class="btn btn--ghost" id="mCatIcoBtn" style="flex:1">Icône &amp; couleur — Médiathèque</button>
+    </div>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn btn--acc" id="mCatOk">Créer</button></div>`);
+  $("#mCatIcoBtn").onclick=()=>openIconPicker({icon:mpI,color:mpC},sel=>{
+    mpI=sel.icon;mpC=sel.color;
+    const pv=$("#mCatPrev");if(pv){pv.style.color=mpC;pv.style.background=mpC+"22";pv.innerHTML=icon(mpI);}
+  });
+  $("#mCatOk").onclick=()=>{
+    const v=($("#mCatName")?.value||"").trim();if(!v){toast("Nom vide");return;}
+    const key=slugify(v);if(!key){toast("Nom invalide");return;}
+    CAT_LABELS[key]=v;CAT_COLORS[key]=mpC;CAT_ICONS[key]=mpI;
+    persistCats();closeModal();toast("Catégorie « "+v+" » créée");
+  };
+  setTimeout(()=>$("#mCatName")?.focus(),150);
+}
+
+/* ═══ [FEAT] FAB = menu de création (article / monde / catégorie) —
+   plus JAMAIS de renvoi vers la page Projets ═══ */
+let fabPageWorld=null;
+function worldOptions(sel){
+  const ws=store.worlds||SEED_WORLDS;
+  return `<option value=""${!sel?" selected":""}>📥 Inbox (sans projet)</option>`+
+    ws.map(w=>`<option value="${esc(w.id)}"${w.id===sel?" selected":""}>${esc(w.name)}</option>`).join("");
+}
+function openNewArticleModal(presetWorld){
+  modal(`<h3>Nouvel article</h3>
+    <input id="mPage" placeholder="Titre de l'article..." maxlength="80" autocomplete="off">
+    <label style="display:block;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--inkmut);margin:0 0 6px">Projet</label>
+    <select id="mPageWorld" style="width:100%;background:var(--bg);border:1px solid var(--line);border-radius:12px;color:var(--ink);font-size:14px;padding:12px;outline:none;margin-bottom:14px">${worldOptions(presetWorld)}</select>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn btn--acc" id="mPageOk">Créer</button></div>`);
+  setTimeout(()=>$("#mPage")?.focus(),150);
+}
+function openCreateMenu(){
+  const active=Object.keys(VIEWS).find(k=>!$(VIEWS[k]).hidden);
+  const preset=(active==="world"||active==="article")?(currentWorld?.id||""):"";
+  modal(`<h3>Créer</h3>
+    <div class="wpicker">
+      <button class="wpicker__it" id="cmArticle">${icon("file")}<span>Nouvel article</span></button>
+      <button class="wpicker__it" id="cmWorld">${icon("compass")}<span>Nouveau monde</span></button>
+      <button class="wpicker__it" id="cmCat">${icon("folder")}<span>Nouvelle catégorie</span></button>
+    </div>
+    <div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button></div>`);
+  $("#cmArticle").onclick=()=>{closeModal();setTimeout(()=>openNewArticleModal(preset),140);};
+  $("#cmWorld").onclick=()=>{closeModal();setTimeout(()=>{
+    modal(`<h3>Nouveau monde</h3><p>Donnez un nom à votre univers.</p><input id="mWorld" placeholder="Nom du monde..." maxlength="40"><div class="modal__row"><button class="btn btn--ghost" data-mclose>Annuler</button><button class="btn btn--acc" id="mWorldOk">Forger</button></div>`);
+    setTimeout(()=>$("#mWorld")?.focus(),150);
+  },140);};
+  $("#cmCat").onclick=()=>{closeModal();setTimeout(()=>openNewCatModal(),140);};
+}
+$("#fab").addEventListener("click",openCreateMenu);
+document.addEventListener("click",e=>{
+  if(e.target.closest("#mPageOk")){
+    const v=$("#mPage").value.trim();if(!v)return;
+    const wsel=$("#mPageWorld");
+    const world=wsel?(wsel.value||null):fabPageWorld;
+    /* garde anti-collision : suffixe automatique si le slug existe déjà */
+    let slug=slugify(v);
+    if(findArticle(slug)){slug=nextFreeSlug(slug);}
+    /* [FEAT] infobox par défaut dans toute nouvelle page */
+    const pg={world,slug,title:v,category:"concept",excerpt:"Nouvelle page.",views:0,tags:[],infobox:{},md:`@infobox {"headerLabel":"${(CAT_LABELS["concept"]||"Fiche").replace(/"/g,"")}","subtitle":"${v.replace(/"/g,"")}"}\n\n## ${v}\n\nPage en cours de rédaction.`,mts:Date.now()};
+    store.pages=[...store.pages,pg];closeModal();
+    if(world===null&&!$("#view-inbox").hidden){renderInbox();toast(`« ${v} » créée dans l'Inbox`);}
+    else{openArticle(pg.slug);toast(`« ${v} » créée${world===null?" dans l'Inbox":""}`);}
+  }
+});
+
+/* ============ BRAISES ============ */
+function spawnEmbers(){
+  const box=$("#embers");if(!box)return;
+  box.innerHTML="";
+  for(let i=0;i<14;i++){
+    const s=document.createElement("span");s.className="ember";
+    const sz=2+Math.random()*3.4;
+    s.style.cssText=`left:${Math.random()*100}%;width:${sz}px;height:${sz}px;--drift:${(Math.random()*60-30).toFixed(0)}px;animation-duration:${9+Math.random()*9}s;animation-delay:-${Math.random()*14}s`;
+    box.appendChild(s);
+  }
+}
+
+/* ============ REVEAL ============ */
+const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){x.target.classList.add("in");io.unobserve(x.target)}}),{threshold:.12});
+function revealScan(){document.querySelectorAll(".reveal:not(.in)").forEach(el=>io.observe(el))}
+
+/* ============ PROMPT DU JOUR (World Anvil style) ============
+   - 30 prompts catégorisés par type (personnage, lieu, faction, mythe, événement, objet, mystère)
+   - Label + couleur + icône dynamiques selon le type
+   - Filtres cliquables (chips en bas) : shuffle uniquement dans le type actif
+   - Init aléatoire au chargement + shuffle non-répétitif */
+let promptFilter=null; // null = tous types autorisés
+let pi=Math.floor(Math.random()*PROMPTS.length);
+
+function eligiblePrompts(){
+  return promptFilter?PROMPTS.map((p,i)=>({p,i})).filter(x=>x.p.t===promptFilter):PROMPTS.map((p,i)=>({p,i}));
+}
+function pickNextPrompt(){
+  const pool=eligiblePrompts();
+  if(!pool.length)return pi;
+  if(pool.length===1)return pool[0].i;
+  let next=pi;
+  while(next===pi){
+    next=pool[Math.floor(Math.random()*pool.length)].i;
+  }
+  return next;
+}
+function renderPromptLabel(){
+  const p=PROMPTS[pi]; if(!p)return;
+  const t=PROMPT_TYPES[p.t]||{label:"Prompt du jour",color:"#8f7bff",icon:"sparkles"};
+  const lbl=$("#promptLabel"), txt=$("#promptLabelText");
+  if(lbl){
+    lbl.style.setProperty("--ptc",t.color);
+    // Remplacer le SVG statique par l'icône dynamique du type
+    const iconHtml=(typeof icon==="function"?icon(t.icon):"");
+    lbl.innerHTML=iconHtml+' <span id="promptLabelText">'+t.label.toUpperCase()+" · Prompt du jour</span>";
+    // Force la couleur des SVG
+    const s=lbl.querySelector("svg"); if(s){s.setAttribute("width","14");s.setAttribute("height","14");}
+  } else if(txt){
+    txt.textContent=t.label.toUpperCase()+" · Prompt du jour";
+  }
+}
+function renderPromptFilters(){
+  const box=$("#promptFilters"); if(!box)return;
+  const types=Object.keys(PROMPT_TYPES);
+  box.innerHTML=
+    `<button class="prompt__filter${promptFilter===null?" is-on":""}" data-pfilter="" style="--pfc:var(--acc)">Tous</button>`+
+    types.map(t=>{
+      const info=PROMPT_TYPES[t];
+      const active=promptFilter===t;
+      return `<button class="prompt__filter${active?" is-on":""}" data-pfilter="${t}" style="--pfc:${info.color}">${esc(info.label)}</button>`;
+    }).join("");
+}
+function applyPrompt(animate){
+  const q=$("#promptQuote"); if(!q)return;
+  if(animate){
+    q.classList.add("fade");
+    setTimeout(()=>{q.textContent=PROMPTS[pi].q;renderPromptLabel();q.classList.remove("fade");},280);
+  } else {
+    q.textContent=PROMPTS[pi].q; renderPromptLabel();
+  }
+}
+// Init : s'assurer que le prompt initial respecte le filtre (aucun au boot, donc tout OK)
+applyPrompt(false);
+renderPromptFilters();
+
+$("#btnShuffle").addEventListener("click",()=>{
+  const btn=$("#btnShuffle");
+  btn.classList.remove("spin"); void btn.offsetWidth; btn.classList.add("spin");
+  pi=pickNextPrompt();
+  applyPrompt(true);
+});
+// Clic sur un filtre → change de type + refait un prompt de ce type
+document.addEventListener("click",e=>{
+  const f=e.target.closest("[data-pfilter]");
+  if(!f)return;
+  const val=f.dataset.pfilter||null;
+  promptFilter=val;
+  renderPromptFilters();
+  // Pick immédiat dans le nouveau filtre (sauf si déjà éligible)
+  const p=PROMPTS[pi];
+  const stillOk=!promptFilter||(p&&p.t===promptFilter);
+  if(!stillOk){
+    pi=pickNextPrompt();
+    applyPrompt(true);
+  }
+});
+
+/* ============ INIT (IndexedDB → puis rendu) ============ */
+(async function boot(){
+  await loadStoreFromIDB(); // Hydrate le cache depuis IDB si dispo
+  /* [FEAT] recharge les catégories personnalisées persistées */
+  try{const c=JSON.parse(localStorage.getItem("atelier.cats")||"null");
+    if(c){Object.assign(CAT_LABELS,c.labels||{});Object.assign(CAT_COLORS,c.colors||{});Object.assign(CAT_ICONS,c.icons||{});}
+  }catch(_){}
+  applyTheme();renderHome();spawnEmbers();showView("home");revealScan();renderThemePanel();
+})();
+</script>
+<!-- [FIX M2] scripts Cloudflare retirés : résidus d'une sauvegarde depuis une
+     page hébergée (challenge-platform) — 2 iframes cachées + requêtes
+     /cdn-cgi/ vouées à l'échec en local et hors ligne. -->
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a29238070d80e99d',t:'MTc4NjM5ODY1NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
